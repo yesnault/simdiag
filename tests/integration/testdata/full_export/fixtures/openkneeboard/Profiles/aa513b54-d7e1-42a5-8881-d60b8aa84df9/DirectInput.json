@@ -1,0 +1,156 @@
+{
+  "Devices": {
+    "{1b196750-3f3d-11f0-8004-444553540000}": {
+      "ID": "{1b196750-3f3d-11f0-8004-444553540000}",
+      "Kind": "GameController",
+      "Name": "Thrustmaster Combined"
+    },
+    "{3833ad30-98c7-11f0-8001-444553540000}": {
+      "ID": "{3833ad30-98c7-11f0-8001-444553540000}",
+      "Kind": "GameController",
+      "Name": "WINCTRL Orion Joystick Base Metal 2 + JGRIP-F16"
+    },
+    "{452023b0-6a1f-11f0-8001-444553540000}": {
+      "ID": "{452023b0-6a1f-11f0-8001-444553540000}",
+      "Kind": "GameController",
+      "Name": "FANATEC ClubSport Pedals V3"
+    },
+    "{530648c0-98c7-11f0-8002-444553540000}": {
+      "ID": "{530648c0-98c7-11f0-8002-444553540000}",
+      "Kind": "GameController",
+      "Name": "WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R"
+    },
+    "{6f1d2b61-d5a0-11cf-bfc7-444553540000}": {
+      "ID": "{6f1d2b61-d5a0-11cf-bfc7-444553540000}",
+      "Kind": "Keyboard",
+      "Name": "Clavier"
+    },
+    "{9814c5e0-3ee0-11f0-8001-444553540000}": {
+      "ID": "{9814c5e0-3ee0-11f0-8001-444553540000}",
+      "Kind": "GameController",
+      "Name": "Switchology MCP"
+    },
+    "{9f4570d0-3ee0-11f0-8002-444553540000}": {
+      "ButtonBindings": [
+        {
+          "Action": "PREVIOUS_TAB",
+          "Buttons": [
+            30
+          ]
+        },
+        {
+          "Action": "NEXT_TAB",
+          "Buttons": [
+            31
+          ]
+        },
+        {
+          "Action": "PREVIOUS_PAGE",
+          "Buttons": [
+            28
+          ]
+        },
+        {
+          "Action": "NEXT_PAGE",
+          "Buttons": [
+            29
+          ]
+        },
+        {
+          "Action": "SWAP_FIRST_TWO_VIEWS",
+          "Buttons": [
+            5
+          ]
+        },
+        {
+          "Action": "TOGGLE_VISIBILITY",
+          "Buttons": [
+            0
+          ]
+        },
+        {
+          "Action": "INCREASE_BRIGHTNESS",
+          "Buttons": [
+            19
+          ]
+        },
+        {
+          "Action": "DECREASE_BRIGHTNESS",
+          "Buttons": [
+            18
+          ]
+        },
+        {
+          "Action": "PREVIOUS_BOOKMARK",
+          "Buttons": [
+            7
+          ]
+        },
+        {
+          "Action": "NEXT_BOOKMARK",
+          "Buttons": [
+            8
+          ]
+        },
+        {
+          "Action": "TOGGLE_FORCE_ZOOM",
+          "Buttons": [
+            3
+          ]
+        },
+        {
+          "Action": "TOGGLE_BOOKMARK",
+          "Buttons": [
+            2
+          ]
+        }
+      ],
+      "ID": "{9f4570d0-3ee0-11f0-8002-444553540000}",
+      "Kind": "GameController",
+      "Name": "Arduino Micro"
+    },
+    "{a9f92800-3ee0-11f0-8003-444553540000}": {
+      "ID": "{a9f92800-3ee0-11f0-8003-444553540000}",
+      "Kind": "GameController",
+      "Name": "button_box_small"
+    },
+    "{b02d6330-3f30-11f0-8002-444553540000}": {
+      "ID": "{b02d6330-3f30-11f0-8002-444553540000}",
+      "Kind": "GameController",
+      "Name": "Throttle - HOTAS Warthog"
+    },
+    "{b0c891c0-3f30-11f0-8003-444553540000}": {
+      "ID": "{b0c891c0-3f30-11f0-8003-444553540000}",
+      "Kind": "GameController",
+      "Name": "T-Rudder"
+    },
+    "{b0c891c0-3f30-11f0-8004-444553540000}": {
+      "ID": "{b0c891c0-3f30-11f0-8004-444553540000}",
+      "Kind": "GameController",
+      "Name": "Joystick - HOTAS Warthog"
+    },
+    "{ba8a45a0-aa8d-11f0-8001-444553540000}": {
+      "ID": "{ba8a45a0-aa8d-11f0-8001-444553540000}",
+      "Kind": "GameController",
+      "Name": "WINCTRL CarrierAce PTO 2"
+    },
+    "{c23c81a0-43cc-11f0-8004-444553540000}": {
+      "ID": "{c23c81a0-43cc-11f0-8004-444553540000}",
+      "Kind": "GameController",
+      "Name": "FANATEC ClubSport Pedals V3"
+    },
+    "{ee6f1c30-3f2e-11f0-8001-444553540000}": {
+      "ButtonBindings": [
+        {
+          "Action": "RECENTER_VR",
+          "Buttons": [
+            37
+          ]
+        }
+      ],
+      "ID": "{ee6f1c30-3f2e-11f0-8001-444553540000}",
+      "Kind": "GameController",
+      "Name": "Arduino Due"
+    }
+  }
+}

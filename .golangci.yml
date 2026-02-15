@@ -1,0 +1,73 @@
+linters:
+  enable:
+    - gofmt
+    # Already enabled
+    - dupl
+    - gocritic
+    - staticcheck
+
+    # Error checking
+    - errcheck
+    - govet
+
+    # Dead/unused code
+    - unused
+    - ineffassign
+
+    # Code simplification
+    - gosimple
+    - unconvert
+
+    # Code quality
+    - gocyclo
+    - goimports
+    - revive
+    # - misspell
+    
+
+linters-settings:
+  dupl:
+    threshold: 100
+
+  errcheck:
+    check-blank: false  # Allow intentional error ignoring with _
+
+  gocyclo:
+    min-complexity: 60
+
+  govet:
+    enable:
+      - assign
+      - atomic
+
+  revive:
+    severity: warning
+    rules:
+      # --- Naming & style ---
+      - name: var-naming
+      - name: package-comments
+      - name: exported
+      - name: receiver-naming
+
+      # --- Code quality ---
+      - name: early-return
+      - name: unnecessary-stmt
+      - name: redundant-import-alias
+      - name: empty-lines
+
+      # --- Errors & correctness ---
+      - name: errorf
+      - name: error-naming
+      - name: error-return
+      - name: indent-error-flow
+
+      # --- Logic & maintainability ---
+      - name: confusing-naming
+      - name: modifies-parameter
+      - name: deep-exit
+      - name: function-length
+        arguments: [350, 350]
+
+      # --- Dead / useless code ---
+      - name: unused-parameter
+      - name: blank-imports

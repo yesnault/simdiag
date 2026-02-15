@@ -1,0 +1,20 @@
+{
+  "ActiveProfile": "{aa513b54-d7e1-42a5-8881-d60b8aa84df9}",
+  "DefaultProfile": "{aa513b54-d7e1-42a5-8881-d60b8aa84df9}",
+  "Enabled": true,
+  "LoopProfiles": false,
+  "Profiles": [
+    {
+      "Guid": "{aa513b54-d7e1-42a5-8881-d60b8aa84df9}",
+      "Name": "Default"
+    },
+    {
+      "Guid": "{a5d990f7-26b8-4902-bc2f-a05a95cce8d8}",
+      "Name": "IL2"
+    },
+    {
+      "Guid": "{d9caf8bc-c9fb-4a85-a579-e36df7ab4edd}",
+      "Name": "Discord"
+    }
+  ]
+}
