@@ -12,6 +12,7 @@ import (
 	"simdiag/dcs"
 	"simdiag/gremlins"
 	"simdiag/il2"
+	"simdiag/il2korea"
 	"simdiag/openkneeboard"
 	"simdiag/srs"
 	"simdiag/target"
@@ -47,6 +48,7 @@ func TestIntegration(t *testing.T) {
 		t.Fatalf("failed to read testdata directory: %v", err)
 	}
 
+	ran := 0
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
@@ -56,17 +58,26 @@ func TestIntegration(t *testing.T) {
 		configPath := filepath.Join("testdata", testCase, "mapping_config.yaml")
 		expectedCSVPath := filepath.Join("testdata", testCase, "expected.csv")
 
-		// Skip directories without the required files
-		if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		// Missing fixtures are a failure, not a reason to skip: silently skipping
+		// makes the whole test pass vacuously (this happened when .gitignore
+		// excluded mapping_config.yaml at any depth).
+		if _, err := os.Stat(configPath); err != nil {
+			t.Errorf("testdata/%s: mapping_config.yaml unusable: %v", testCase, err)
 			continue
 		}
-		if _, err := os.Stat(expectedCSVPath); os.IsNotExist(err) {
+		if _, err := os.Stat(expectedCSVPath); err != nil {
+			t.Errorf("testdata/%s: expected.csv unusable: %v", testCase, err)
 			continue
 		}
 
+		ran++
 		t.Run(testCase, func(t *testing.T) {
 			runTestCase(t, testCase, configPath, expectedCSVPath)
 		})
+	}
+
+	if ran == 0 {
+		t.Fatal("no test case ran: testdata/ contains no usable fixture directory")
 	}
 }
 
@@ -82,10 +93,17 @@ func runTestCase(t *testing.T, _ /* name */, configPath, expectedCSVPath string)
 	// Set global config filename
 	common.SetConfigFileName(tempConfigPath)
 
+	// The IL-2 Korea parser needs the config to borrow action labels from Great Battles
+	config, err := common.LoadConfig()
+	if err != nil {
+		t.Fatalf("failed to load prepared config: %v", err)
+	}
+
 	// Create parsers and enrichers
 	parsers := map[common.SimulationType]common.SimulatorParser{
 		common.DCSWorld:     dcs.NewParser(),
 		common.IL2Sturmovik: il2.NewParser(),
+		common.IL2Korea:     il2korea.NewParser(config),
 	}
 	enrichers := []common.BindingEnricher{
 		gremlins.NewEnricher(),
@@ -120,8 +138,11 @@ func runTestCase(t *testing.T, _ /* name */, configPath, expectedCSVPath string)
 }
 
 // prepareConfig reads the test config, replaces output_directory with tmpDir,
-// replaces templates_directory with absolute path to project templates,
 // and writes the modified config to a temp file. Returns the temp config path.
+//
+// templates_directory is deliberately left untouched: it points at
+// testdata/full_export/fixtures/templates so the test stays hermetic and does
+// not break when the real ./templates directory is reorganized.
 func prepareConfig(t *testing.T, configPath, tmpDir string) string {
 	t.Helper()
 
@@ -136,13 +157,6 @@ func prepareConfig(t *testing.T, configPath, tmpDir string) string {
 	}
 
 	raw["output_directory"] = tmpDir
-
-	// Get absolute path to project templates directory (../../templates from integration test directory)
-	templatesDir, err := filepath.Abs("../../templates")
-	if err != nil {
-		t.Fatalf("failed to get absolute path to templates: %v", err)
-	}
-	raw["templates_directory"] = templatesDir
 
 	modified, err := yaml.Marshal(raw)
 	if err != nil {

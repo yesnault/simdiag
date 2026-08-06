@@ -40,6 +40,9 @@ func getModuleName(exportDevice *ExportDevice) string {
 	if exportDevice.Profile.SimType == IL2Sturmovik {
 		return "il2"
 	}
+	if exportDevice.Profile.SimType == IL2Korea {
+		return "il2-korea"
+	}
 	return ""
 }
 

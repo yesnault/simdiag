@@ -1,0 +1,62 @@
+{
+  "devices": [
+    {
+      "deviceId": 8,
+      "model": "WINCTRL Orion Joystick Base Metal 2 + JGRIP-F16",
+      "ident": "4098_bea8",
+      "name": ""
+    },
+    {
+      "deviceId": 7,
+      "model": "WINCTRL Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R",
+      "ident": "4098_bd64",
+      "name": ""
+    },
+    {
+      "deviceId": 2,
+      "model": "Arduino Due",
+      "ident": "2341_003e",
+      "name": ""
+    }
+  ],
+  "modifiers": [
+    "key_lcontrol",
+    "key_lmenu",
+    "key_lshift"
+  ],
+  "actions": {
+    "all_guns_fire": [
+      "key_space",
+      "mouse_b0",
+      "dev8_b3"
+    ],
+    "all_guns_reload": [
+      "key_r",
+      "dev8_b16"
+    ],
+    "all_engines_boost": [
+      "dev7_b104"
+    ],
+    "autopilot_trims_reset": [
+      "dev2_b12"
+    ],
+    "gs_brightness": [
+      "-dev7_axis_p"
+    ],
+    "gs_yaw": [
+      "dev8_axis_x"
+    ],
+    "all_engines_ignition": [
+      "-dev7_axis_s"
+    ],
+    "rpc_pitch_trim": [
+      "dev8_pov0_180/dev8_pov0_0"
+    ],
+    "rpc_roll_trim": [
+      "dev8_pov0_90/dev8_pov0_270"
+    ],
+    "kos_only_action_without_label": [
+      "dev2_b20"
+    ]
+  }
+}

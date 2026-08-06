@@ -218,19 +218,25 @@ func GenerateSVGFromCSV(csvPath string, config *common.Config) error {
 
 		// Determine output directory
 		outputDir := config.OutputDirectory
-		if simType == common.DCSWorld && module != "" {
+		switch {
+		case simType == common.DCSWorld && module != "":
 			normalizedModule := common.NormalizeModuleName(module)
 			outputDir = filepath.Join(config.OutputDirectory, "dcs-"+normalizedModule)
-		} else if simType == common.IL2Sturmovik {
+		case simType == common.IL2Sturmovik:
 			outputDir = filepath.Join(config.OutputDirectory, "il2")
+		case simType == common.IL2Korea:
+			outputDir = filepath.Join(config.OutputDirectory, "il2-korea")
 		}
 
 		// Create title
 		title := representativeName
-		if simType == common.DCSWorld && module != "" {
+		switch {
+		case simType == common.DCSWorld && module != "":
 			title = fmt.Sprintf("DCS World / %s", strings.ToUpper(module))
-		} else if simType == common.IL2Sturmovik {
+		case simType == common.IL2Sturmovik:
 			title = "IL-2 Sturmovik"
+		case simType == common.IL2Korea:
+			title = "IL-2 Korea"
 		}
 
 		// Create ExportDevice
@@ -270,6 +276,8 @@ func parseSimulatorType(simulator string) common.SimulationType {
 		return common.DCSWorld
 	case "il2_sturmovik", "il2", "il-2":
 		return common.IL2Sturmovik
+	case "il2_korea", "il2-korea", "korea":
+		return common.IL2Korea
 	default:
 		return common.DCSWorld
 	}

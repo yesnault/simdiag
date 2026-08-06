@@ -1,0 +1,34 @@
+{
+  "knownDevices": {
+    "3833ad30-98c7-11f0-0000545345440180": {
+      "deviceId": 8,
+      "model": "WINCTRL Orion Joystick Base Metal 2 + JGRIP-F16",
+      "ident": "4098_bea8",
+      "labels": "default",
+      "isNew": false,
+      "isGamepad": false
+    },
+    "530648c0-98c7-11f0-0000545345440280": {
+      "deviceId": 7,
+      "model": "WINCTRL Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R",
+      "ident": "4098_bd64",
+      "labels": "default",
+      "isNew": false,
+      "isGamepad": false
+    },
+    "ee6f1c30-3f2e-11f0-0000545345440180": {
+      "deviceId": 2,
+      "model": "Arduino Due",
+      "ident": "2341_003e",
+      "isNew": false,
+      "isGamepad": false
+    },
+    "9f4570d0-3ee0-11f0-0000545345440280": {
+      "deviceId": 3,
+      "model": "Arduino Micro",
+      "ident": "2341_8037",
+      "isNew": false,
+      "isGamepad": false
+    }
+  }
+}

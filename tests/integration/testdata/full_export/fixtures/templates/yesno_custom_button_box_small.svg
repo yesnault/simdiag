@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Test stub. The CSV pipeline (--no-svg mode) only calls os.Stat on this file
+     and never reads its content. If the integration test is ever extended to
+     cover SVG generation, real template keys (Button_N, AXIS_X, POV_1_U, ...)
+     must be added here. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"></svg>

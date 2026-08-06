@@ -483,6 +483,8 @@ func buildOutputPath(config *common.Config, ctx *exportContext) string {
 		return filepath.Join(config.OutputDirectory, "dcs-"+ctx.selectedModule)
 	case ctx.simType == common.IL2Sturmovik:
 		return filepath.Join(config.OutputDirectory, "il2")
+	case ctx.simType == common.IL2Korea:
+		return filepath.Join(config.OutputDirectory, "il2-korea")
 	default:
 		return config.OutputDirectory
 	}

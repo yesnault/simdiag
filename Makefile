@@ -49,8 +49,11 @@ unit-test:
 	@echo "Running DCS parser unit tests..."
 	go test ./dcs/ -v
 	@echo ""
-	@echo "Running IL-2 parser unit tests..."
+	@echo "Running IL-2 Great Battles parser unit tests..."
 	go test ./il2/ -v
+	@echo ""
+	@echo "Running IL-2 Korea parser unit tests..."
+	go test ./il2korea/ -v
 	@echo ""
 	@echo "Running OpenKneeboard unit tests..."
 	go test ./openkneeboard/ -v

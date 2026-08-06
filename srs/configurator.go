@@ -62,6 +62,25 @@ func configureSRSForSimulator(config *common.Config, simType common.SimulationTy
 	return needsSave
 }
 
+// mirrorSRSPathToKorea copies the Great Battles SRS path to IL-2 Korea, which uses the
+// same SimpleRadio installation. Only applies when Korea is already configured, so that
+// a Korea section is never created for users who do not have the game.
+func mirrorSRSPathToKorea(config *common.Config) bool {
+	koreaConfig, exists := config.Simulators[common.IL2Korea.GetConfigKey()]
+	if !exists || koreaConfig == nil || koreaConfig.SRSPath != "" {
+		return false
+	}
+
+	il2Config := config.GetSimulatorConfig(common.IL2Sturmovik)
+	if il2Config == nil || il2Config.SRSPath == "" {
+		return false
+	}
+
+	koreaConfig.SRSPath = il2Config.SRSPath
+	fmt.Printf("✓ IL-2 Korea SRS path set from Great Battles: %s\n", koreaConfig.SRSPath)
+	return true
+}
+
 // Configure prompts the user to configure SRS paths for both simulators
 func (c *Configurator) Configure(config *common.Config, batchMode bool) error {
 	if config == nil {
@@ -73,6 +92,7 @@ func (c *Configurator) Configure(config *common.Config, batchMode bool) error {
 	needsSave := false
 	needsSave = configureSRSForSimulator(config, common.IL2Sturmovik, "IL-2", "IL2-SimpleRadio-Standalone", il2Path, il2Found, batchMode) || needsSave
 	needsSave = configureSRSForSimulator(config, common.DCSWorld, "DCS", "DCS-SimpleRadio-Standalone", dcsPath, dcsFound, batchMode) || needsSave
+	needsSave = mirrorSRSPathToKorea(config) || needsSave
 
 	if needsSave {
 		if err := common.SaveConfig(config); err != nil {

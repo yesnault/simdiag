@@ -156,29 +156,27 @@ func parseIL2Devices(devicesPath string) (map[string]*common.Device, error) {
 	return devices, scanner.Err()
 }
 
-// parseIL2GlobalActions parses the global.actions file
-func parseIL2GlobalActions(actionsPath string, profile *common.Profile, devices map[string]*common.Device) error {
-	// Read file as bytes first
-	fileBytes, err := os.ReadFile(actionsPath)
-	if err != nil {
-		return err
-	}
-
-	// IL-2 files are mostly Windows-1252/ISO-8859-1 encoded, but contain some UTF-8 sequences
-	// (like the right single quotation mark U+2019 = E2 80 99 in UTF-8)
-	var content string
+// DecodeIL2Text converts raw IL-2 configuration bytes to a string.
+// IL-2 files are mostly Windows-1252/ISO-8859-1 encoded, but contain some UTF-8 sequences
+// (like the right single quotation mark U+2019 = E2 80 99 in UTF-8).
+func DecodeIL2Text(fileBytes []byte) string {
+	var sb strings.Builder
 	for i := 0; i < len(fileBytes); i++ {
 		// Check for UTF-8 encoded right single quotation mark (E2 80 99)
 		if i+2 < len(fileBytes) && fileBytes[i] == 0xE2 && fileBytes[i+1] == 0x80 && fileBytes[i+2] == 0x99 {
-			content += "'"
+			sb.WriteString("'")
 			i += 2 // Skip the next 2 bytes
 		} else {
 			// Treat as Windows-1252
-			content += string(rune(fileBytes[i]))
+			sb.WriteRune(rune(fileBytes[i]))
 		}
 	}
+	return sb.String()
+}
 
-	// First pass: build action descriptions mapping
+// extractActionDescriptions builds the action name -> human readable description mapping
+// from the "| // description" comments of a global.actions content.
+func extractActionDescriptions(content string) map[string]string {
 	actionDescriptions := make(map[string]string)
 	scanner := bufio.NewScanner(strings.NewReader(content))
 
@@ -217,8 +215,37 @@ func parseIL2GlobalActions(actionsPath string, profile *common.Profile, devices 
 		}
 	}
 
+	return actionDescriptions
+}
+
+// LoadActionDescriptions reads a global.actions file and returns the action name ->
+// description mapping built from its inline comments.
+//
+// IL-2 Korea ships no human readable labels, so its parser reuses this mapping from a
+// configured Great Battles installation. Returns an empty map if the file cannot be read.
+func LoadActionDescriptions(globalActionsPath string) map[string]string {
+	fileBytes, err := os.ReadFile(globalActionsPath)
+	if err != nil {
+		return map[string]string{}
+	}
+	return extractActionDescriptions(DecodeIL2Text(fileBytes))
+}
+
+// parseIL2GlobalActions parses the global.actions file
+func parseIL2GlobalActions(actionsPath string, profile *common.Profile, devices map[string]*common.Device) error {
+	// Read file as bytes first
+	fileBytes, err := os.ReadFile(actionsPath)
+	if err != nil {
+		return err
+	}
+
+	content := DecodeIL2Text(fileBytes)
+
+	// First pass: build action descriptions mapping
+	actionDescriptions := extractActionDescriptions(content)
+
 	// Second pass: parse bindings
-	scanner = bufio.NewScanner(strings.NewReader(content))
+	scanner := bufio.NewScanner(strings.NewReader(content))
 
 	// Patterns for different input types
 	buttonPattern := regexp.MustCompile(`^joy(\d+)_b(\d+)$`)
@@ -339,24 +366,7 @@ func parseIL2GlobalActions(actionsPath string, profile *common.Profile, devices 
 					continue
 				}
 
-				// Map IL-2 axis letters to DirectInput axis names
-				axisMapping := map[string]string{
-					"x": "X",
-					"y": "Y",
-					"z": "Z",
-					"w": "RX",
-					"s": "RY",
-					"t": "RZ",
-					"q": "SLIDER_2",
-					"p": "SLIDER_1",
-					"u": "U",
-					"r": "V",
-				}
-
-				axisID := axisMapping[axisLetter]
-				if axisID == "" {
-					axisID = strings.ToUpper(axisLetter)
-				}
+				axisID := AxisLetterToAxisID(axisLetter)
 
 				binding := common.Binding{
 					DeviceGUID:  deviceGUID,
@@ -394,24 +404,7 @@ func parseIL2GlobalActions(actionsPath string, profile *common.Profile, devices 
 				_, _ = fmt.Sscanf(povNum, "%d", &povNumInt)
 				povNumInt++
 
-				// Map direction angles to directional names
-				directionMapping := map[string]string{
-					"0":   "U",
-					"45":  "UR",
-					"90":  "R",
-					"135": "DR",
-					"180": "D",
-					"225": "DL",
-					"270": "L",
-					"315": "UL",
-				}
-
-				directionName := directionMapping[direction]
-				if directionName == "" {
-					directionName = direction
-				}
-
-				hatDirection := fmt.Sprintf("%d_%s", povNumInt, directionName)
+				hatDirection := fmt.Sprintf("%d_%s", povNumInt, PovAngleToDirection(direction))
 
 				binding := common.Binding{
 					DeviceGUID:  deviceGUID,
@@ -432,6 +425,52 @@ func parseIL2GlobalActions(actionsPath string, profile *common.Profile, devices 
 	parseKeyboardBindingsFromIL2(content, profile, actionDescriptions)
 
 	return scanner.Err()
+}
+
+// axisLetterToAxisID maps IL-2 axis letters to DirectInput axis names.
+// Shared by both IL-2 engines (Great Battles and Korea use the same letters).
+var axisLetterToAxisID = map[string]string{
+	"x": "X",
+	"y": "Y",
+	"z": "Z",
+	"w": "RX",
+	"s": "RY",
+	"t": "RZ",
+	"q": "SLIDER_2",
+	"p": "SLIDER_1",
+	"u": "U",
+	"r": "V",
+}
+
+// povAngleToDirection maps POV/hat angles to directional names.
+// Shared by both IL-2 engines.
+var povAngleToDirection = map[string]string{
+	"0":   "U",
+	"45":  "UR",
+	"90":  "R",
+	"135": "DR",
+	"180": "D",
+	"225": "DL",
+	"270": "L",
+	"315": "UL",
+}
+
+// AxisLetterToAxisID converts an IL-2 axis letter (e.g. "w") to a DirectInput axis
+// name (e.g. "RX"). Unknown letters are returned uppercased.
+func AxisLetterToAxisID(letter string) string {
+	if axisID, ok := axisLetterToAxisID[strings.ToLower(letter)]; ok {
+		return axisID
+	}
+	return strings.ToUpper(letter)
+}
+
+// PovAngleToDirection converts an IL-2 POV angle (e.g. "180") to a directional name
+// (e.g. "D"). Unknown angles are returned unchanged.
+func PovAngleToDirection(angle string) string {
+	if direction, ok := povAngleToDirection[angle]; ok {
+		return direction
+	}
+	return angle
 }
 
 // findDeviceGUIDByConfigID finds a device GUID by its IL-2 config ID

@@ -53,15 +53,12 @@ func (e *Enricher) IsAvailable(config *common.Config) bool {
 	}
 
 	// Check if at least one simulator has SRS configured
-	if dcsConfig := config.GetSimulatorConfig(common.DCSWorld); dcsConfig != nil && dcsConfig.SRSPath != "" {
-		configPath := filepath.Join(dcsConfig.SRSPath, "default.cfg")
-		if _, err := os.Stat(configPath); err == nil {
-			return true
+	for _, simType := range []common.SimulationType{common.DCSWorld, common.IL2Sturmovik, common.IL2Korea} {
+		simConfig := config.GetSimulatorConfig(simType)
+		if simConfig == nil || simConfig.SRSPath == "" {
+			continue
 		}
-	}
-
-	if il2Config := config.GetSimulatorConfig(common.IL2Sturmovik); il2Config != nil && il2Config.SRSPath != "" {
-		configPath := filepath.Join(il2Config.SRSPath, "default.cfg")
+		configPath := filepath.Join(simConfig.SRSPath, "default.cfg")
 		if _, err := os.Stat(configPath); err == nil {
 			return true
 		}

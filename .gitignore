@@ -18,7 +18,9 @@ obj/
 *.bkp
 *.test
 mapping_config.yaml
-templates/base/*.bkp
+# Integration test fixtures must stay versioned (the pattern above has no slash,
+# so it would otherwise match at any depth and silently skip the whole test)
+!tests/integration/testdata/*/mapping_config.yaml
 mapping_config_*
 run_simdiag_*
 users/

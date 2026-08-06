@@ -51,8 +51,9 @@ func ReadLineWithDefault(defaultValue string) string {
 func SelectSimulation() SimulationType {
 	fmt.Println("\n=== Simulation Selection ===")
 	fmt.Println("1. DCS World")
-	fmt.Println("2. IL-2 Sturmovik")
-	fmt.Print("\nChoose (1-2): ")
+	fmt.Println("2. IL-2 Sturmovik Great Battles")
+	fmt.Println("3. IL-2 Korea")
+	fmt.Print("\nChoose (1-3): ")
 
 	input, err := ReadLine()
 	if err != nil {
@@ -60,8 +61,11 @@ func SelectSimulation() SimulationType {
 		return DCSWorld
 	}
 
-	if input == "2" {
+	switch input {
+	case "2":
 		return IL2Sturmovik
+	case "3":
+		return IL2Korea
 	}
 	return DCSWorld
 }
@@ -94,6 +98,13 @@ func GetConfigPath(config *Config, simType SimulationType, batchMode bool) strin
 			defaultPath = il2Config.IL2InputPath
 		} else {
 			defaultPath = filepath.Join("C:\\", "Program Files", "IL-2 Sturmovik Great Battles", "data", "input")
+		}
+	case IL2Korea:
+		koreaConfig := config.GetSimulatorConfig(IL2Korea)
+		if koreaConfig != nil && koreaConfig.IL2InputPath != "" {
+			defaultPath = koreaConfig.IL2InputPath
+		} else {
+			defaultPath = filepath.Join("C:\\", "Program Files", "IL2Series", "game", "data", "Input")
 		}
 	}
 

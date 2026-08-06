@@ -496,11 +496,13 @@ func LoadBindingsForDevice(deviceGUID string, config *common.Config) []*Binding 
 	// Check all simulators and modules for Gremlins profiles
 	var allBindings []*Binding
 
-	// Check IL-2
-	il2Profile := GetProfilePath(config, common.IL2Sturmovik, "")
-	if il2Profile != "" {
-		bindings := LoadBindings(il2Profile, deviceGUID)
-		allBindings = append(allBindings, bindings...)
+	// Check IL-2 (Great Battles and Korea)
+	for _, simType := range []common.SimulationType{common.IL2Sturmovik, common.IL2Korea} {
+		il2Profile := GetProfilePath(config, simType, "")
+		if il2Profile != "" {
+			bindings := LoadBindings(il2Profile, deviceGUID)
+			allBindings = append(allBindings, bindings...)
+		}
 	}
 
 	// Check DCS modules

@@ -47,10 +47,13 @@ func ExportToCSV(exportDevices []*common.ExportDevice, outputPath string, config
 
 		// Determine module name
 		module := ""
-		if exportDevice.Profile.SimType == common.DCSWorld && exportDevice.Profile.Module != "" {
+		switch {
+		case exportDevice.Profile.SimType == common.DCSWorld && exportDevice.Profile.Module != "":
 			module = exportDevice.Profile.Module
-		} else if exportDevice.Profile.SimType == common.IL2Sturmovik {
+		case exportDevice.Profile.SimType == common.IL2Sturmovik:
 			module = "il2"
+		case exportDevice.Profile.SimType == common.IL2Korea:
+			module = "il2-korea"
 		}
 
 		// Process each binding

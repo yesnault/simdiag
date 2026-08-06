@@ -115,6 +115,8 @@ func getSimulatorKey(simType SimulationType) string {
 		return "dcs_world"
 	case IL2Sturmovik:
 		return "il2_sturmovik"
+	case IL2Korea:
+		return "il2_korea"
 	default:
 		return "dcs_world"
 	}

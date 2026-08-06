@@ -9,6 +9,7 @@ import (
 	"simdiag/dcs"
 	"simdiag/gremlins"
 	"simdiag/il2"
+	"simdiag/il2korea"
 	"simdiag/openkneeboard"
 	"simdiag/srs"
 	"simdiag/svg"
@@ -242,6 +243,7 @@ func runBatchMode(config *common.Config, filter string, noSVG bool) {
 	parsers := map[common.SimulationType]common.SimulatorParser{
 		common.DCSWorld:     dcs.NewParser(),
 		common.IL2Sturmovik: il2.NewParser(),
+		common.IL2Korea:     il2korea.NewParser(config),
 	}
 
 	// Create binding enrichers
@@ -269,7 +271,7 @@ func runInteractiveMode(config *common.Config) error {
 	configureOptionalTools(config)
 
 	// Parse simulator files
-	profiles, err := parseSimulator(simType, configPath)
+	profiles, err := parseSimulator(config, simType, configPath)
 	if err != nil {
 		return err
 	}
@@ -285,11 +287,11 @@ func runInteractiveMode(config *common.Config) error {
 // saveSimulatorPath saves the simulator path to the configuration
 func saveSimulatorPath(config *common.Config, simType common.SimulationType, configPath string) {
 	switch simType {
-	case common.IL2Sturmovik:
+	case common.IL2Sturmovik, common.IL2Korea:
 		simConfig := config.GetSimulatorConfig(simType)
 		simConfig.IL2InputPath = configPath
 		if err := common.SaveConfig(config); err != nil {
-			fmt.Printf("⚠ Unable to save IL-2 path: %v\n", err)
+			fmt.Printf("⚠ Unable to save %s path: %v\n", simType, err)
 		}
 	case common.DCSWorld:
 		dcsConfig := config.GetSimulatorConfig(common.DCSWorld)
@@ -323,7 +325,7 @@ func configureOptionalTools(config *common.Config) {
 }
 
 // parseSimulator parses the simulator configuration files using the appropriate parser
-func parseSimulator(simType common.SimulationType, configPath string) (*common.ProfileCollection, error) {
+func parseSimulator(config *common.Config, simType common.SimulationType, configPath string) (*common.ProfileCollection, error) {
 	// Get the appropriate parser for the simulator type
 	var parser common.SimulatorParser
 
@@ -332,6 +334,8 @@ func parseSimulator(simType common.SimulationType, configPath string) (*common.P
 		parser = dcs.NewParser()
 	case common.IL2Sturmovik:
 		parser = il2.NewParser()
+	case common.IL2Korea:
+		parser = il2korea.NewParser(config)
 	default:
 		return nil, fmt.Errorf("simulation type not supported")
 	}

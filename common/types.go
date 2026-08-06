@@ -49,8 +49,11 @@ type Configurable interface {
 type SimulationType string
 
 const (
-	DCSWorld     SimulationType = "DCS World"
+	DCSWorld SimulationType = "DCS World"
+	// IL2Sturmovik is IL-2 Sturmovik Great Battles (text-based config format)
 	IL2Sturmovik SimulationType = "IL-2 Sturmovik"
+	// IL2Korea is IL-2 Sturmovik Korea (JSON-based config format)
+	IL2Korea SimulationType = "IL-2 Korea"
 )
 
 // GetConfigKey returns the configuration key for the simulator type
@@ -60,6 +63,8 @@ func (s SimulationType) GetConfigKey() string {
 		return "dcs_world"
 	case IL2Sturmovik:
 		return "il2_sturmovik"
+	case IL2Korea:
+		return "il2_korea"
 	default:
 		return string(s)
 	}

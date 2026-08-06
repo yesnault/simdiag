@@ -1,6 +1,6 @@
 # SimDiag
 
-SimDiag is a Windows CLI tool that parses flight simulator controller configurations (DCS World, IL-2 Sturmovik) and generates visual SVG/PNG diagrams showing joystick and throttle button assignments.
+SimDiag is a Windows CLI tool that parses flight simulator controller configurations (DCS World, IL-2 Sturmovik Great Battles, IL-2 Korea) and generates visual SVG/PNG diagrams showing joystick and throttle button assignments.
 
 ## Purpose
 
@@ -18,7 +18,7 @@ SimDiag is inspired by [joystick-diagrams.com](https://joystick-diagrams.com/), 
 
 **SimDiag-specific features:**
 - OpenKneeboard profile integration
-- IL-2 Sturmovik support
+- IL-2 Sturmovik Great Battles and IL-2 Korea support
 - SimpleRadio Standalone integration (both DCS and IL-2 versions)
 - Simplified template syntax (no `_modifier` suffix required in templates)
 
@@ -29,7 +29,7 @@ If you need a graphical interface and don't require OpenKneeboard or SRS integra
 
 ## Features
 
-- **Multi-Simulator Support**: Parses DCS World and IL-2 Sturmovik controller bindings
+- **Multi-Simulator Support**: Parses DCS World, IL-2 Sturmovik Great Battles and IL-2 Korea controller bindings
 - **Visual Diagrams**: Generates SVG diagrams with optional PNG conversion (via draw.io)
 - **External Tool Integration**: Enriches bindings with Gremlins, TARGET, OpenKneeboard, and SimpleRadio Standalone (SRS) mappings
 - **Modifier Support**: Displays modifier button combinations with color-coded visual grouping
@@ -70,7 +70,7 @@ This example demonstrates TARGET layer integration:
 - **Layer detection**: SimDiag identifies TARGET layer switches and displays which layer is active
 - **Virtual device mapping**: Physical inputs remapped through TARGET scripts are tracked and displayed
 - **Layer indicators**: The active layer (in this case, layer I) is shown alongside the bindings
-- **Cross-simulator support**: TARGET remapping works with both DCS World and IL-2 Sturmovik configurations
+- **Cross-simulator support**: TARGET remapping works with DCS World, IL-2 Great Battles and IL-2 Korea configurations
 
 SimDiag parses TARGET scripts to understand the complete input chain from physical device → TARGET layer/remapping → simulator binding.
 
@@ -84,7 +84,7 @@ This example demonstrates Gremlins integration:
 - **Shift mode tracking**: SimDiag identifies Gremlins shift modes (virtual layers) and displays which mode is active
 - **vJoy mapping**: Physical device inputs remapped through Gremlins to vJoy devices are tracked and displayed
 - **Virtual device identification**: The diagram shows both the physical input and its corresponding vJoy virtual device assignment
-- **Cross-simulator support**: Gremlins remapping works with both DCS World and IL-2 Sturmovik configurations
+- **Cross-simulator support**: Gremlins remapping works with DCS World, IL-2 Great Battles and IL-2 Korea configurations
 
 SimDiag parses Gremlins XML profile files to track the complete input chain from physical device → Gremlins shift mode/remapping → vJoy virtual device → simulator binding.
 
@@ -143,7 +143,8 @@ The configuration includes:
 
 - **Global settings**: Templates directory, output directory, device-to-template mappings
 - **DCS World**: Installation path, modules to export, Gremlins/SRS paths
-- **IL-2 Sturmovik**: Input path, Gremlins/SRS paths
+- **IL-2 Sturmovik Great Battles**: Input path, Gremlins/SRS paths
+- **IL-2 Korea**: Input path, Gremlins/SRS paths
 - **OpenKneeboard**: Profile path for additional bindings
 
 ### Example Configuration
@@ -176,6 +177,11 @@ simulators:
 
   il2_sturmovik:
     il2_input_path: C:\Program Files\IL-2 Sturmovik Great Battles\data\input
+    srs_path: C:\Program Files\IL2-SimpleRadio-Standalone
+    gremlins_profile_filepath: C:\Path\To\Gremlins\profile.xml
+
+  il2_korea:
+    il2_input_path: C:\Program Files\IL2Series\game\data\Input
     srs_path: C:\Program Files\IL2-SimpleRadio-Standalone
     gremlins_profile_filepath: C:\Path\To\Gremlins\profile.xml
 
@@ -272,7 +278,9 @@ output/
 │   └── ...
 ├── dcs-fa18c_hornet/           # DCS FA-18C module diagrams
 │   └── ...
-└── il2/                        # IL-2 Sturmovik diagrams
+├── il2/                        # IL-2 Sturmovik Great Battles diagrams
+│   └── ...
+└── il2-korea/                  # IL-2 Korea diagrams
     └── ...
 ```
 
@@ -280,7 +288,7 @@ output/
 
 The CSV export contains 13 columns:
 
-- `Simulator` - Simulator name (DCS World, IL-2 Sturmovik)
+- `Simulator` - Simulator config key (dcs_world, il2_sturmovik, il2_korea)
 - `Module` - Module/aircraft name (M-2000C, FA-18C, etc.)
 - `Action` - Binding description
 - `Modifier` - Modifier state (e.g., "Modifier BTN24")
@@ -348,7 +356,8 @@ simdiag/
 ├── cmd/simdiag/        # Main entry point
 ├── common/             # Shared types, config, utilities
 ├── dcs/                # DCS World parser
-├── il2/                # IL-2 Sturmovik parser
+├── il2/                # IL-2 Sturmovik Great Battles parser
+├── il2korea/           # IL-2 Korea parser
 ├── gremlins/           # Gremlins binding enricher
 ├── target/             # TARGET binding enricher
 ├── openkneeboard/      # OpenKneeboard binding enricher
