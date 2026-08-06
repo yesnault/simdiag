@@ -9,6 +9,42 @@ import (
 	"strings"
 )
 
+// Patterns used to pull bindings out of DCS .lua files. They are compiled once:
+// several of them are applied per binding, inside nested loops.
+var (
+	// Device / modifier declarations
+	deviceGUIDPattern = regexp.MustCompile(`(?i)\{[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\}`)
+	modifierPattern   = regexp.MustCompile(`(?s)\["([^"]+)"\]\s*=\s*\{[^}]*\["device"\]\s*=\s*"([^"]*\{([^}]+)\})"[^}]*\["key"\]\s*=\s*"([^"]+)"[^}]*\["switch"\]\s*=\s*(true|false)[^}]*\}`)
+
+	// Section delimiters
+	axisDiffsStartPattern = regexp.MustCompile(`\["axisDiffs"\]\s*=\s*\{`)
+	axisBlockStartPattern = regexp.MustCompile(`\["a\d+[^"]*"\]\s*=\s*\{`)
+	changedStartPattern   = regexp.MustCompile(`\["changed"\]\s*=\s*\{`)
+	addedStartPattern     = regexp.MustCompile(`\["added"\]\s*=\s*\{`)
+	keyDiffsPattern       = regexp.MustCompile(`(?s)\["keyDiffs"\]\s*=\s*\{(.*)\},?\s*\}\s*return diff`)
+	keyDiffsLoosePattern  = regexp.MustCompile(`(?s)\["keyDiffs"\]\s*=\s*\{(.*)\}`)
+	addedBlockPattern     = regexp.MustCompile(`(?s)\["added"\]\s*=\s*\{((?:[^{}]|\{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*\})*)\}`)
+
+	// Binding blocks
+	diffBlockPattern    = regexp.MustCompile(`(?s)\["d[^"]+"\]\s*=\s*\{(?:[^{}]|\{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*\})*\}`)
+	anyBlockPattern     = regexp.MustCompile(`(?s)\["[^"]+"\]\s*=\s*\{(?:[^{}]|\{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*\})*\}`)
+	axisEntryPattern    = regexp.MustCompile(`(?s)\[\d+\]\s*=\s*\{([^{}]*(?:\{[^{}]*(?:\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}[^{}]*)*\}[^{}]*)*)\}`)
+	keyEntryPattern     = regexp.MustCompile(`(?s)\[\d+\]\s*=\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}`)
+	reformersPattern    = regexp.MustCompile(`(?s)\["reformers"\]\s*=\s*\{(.*?)\}`)
+	numberedKeyPattern  = regexp.MustCompile(`\[\d+\]\s*=\s*"([^"]+)"`)
+	defaultCombosPatern = regexp.MustCompile(`\{combos\s*=\s*\{\{key\s*=\s*'([^']+)'\}\},\s*down\s*=\s*[^,]+,\s*name\s*=\s*_\('([^']+)'\)`)
+
+	// Field extraction
+	namePattern     = regexp.MustCompile(`\["name"\]\s*=\s*"([^"]+)"`)
+	axisNamePattern = regexp.MustCompile(`\["name"\]\s*=\s*"([^"]*)"`)
+	joyKeyPattern   = regexp.MustCompile(`\["key"\]\s*=\s*"(JOY_[^"]+)"`)
+	anyKeyPattern   = regexp.MustCompile(`\["key"\]\s*=\s*"([^"]+)"`) // Accept any key format, not just KEY_
+
+	// Input naming
+	sliderPattern       = regexp.MustCompile(`^SLIDER(\d+)$`)
+	standardAxisPattern = regexp.MustCompile(`^R?[XYZ]$`)
+)
+
 // Parser implements the SimulatorParser interface for DCS World
 type Parser struct{}
 
@@ -27,11 +63,6 @@ func (p *Parser) GetName() string {
 	return "DCS World"
 }
 
-// GetType implements SimulatorParser.GetType
-func (p *Parser) GetType() common.SimulationType {
-	return common.DCSWorld
-}
-
 // parseDCS parses DCS World configuration files
 func parseDCS(basePath string) (*common.ProfileCollection, error) {
 	collection := &common.ProfileCollection{
@@ -43,7 +74,7 @@ func parseDCS(basePath string) (*common.ProfileCollection, error) {
 
 	// Check that the folder exists
 	if _, err := os.Stat(inputPath); os.IsNotExist(err) {
-		return nil, fmt.Errorf("Config/Input folder does not exist in: %s", basePath)
+		return nil, fmt.Errorf("no Config/Input folder in: %s", basePath)
 	}
 
 	// List profiles (subfolders)
@@ -129,7 +160,7 @@ func parseDCSProfile(profilePath, profileName string) (*common.Profile, error) {
 		filePath := filepath.Join(joystickPath, entry.Name())
 		err := parseDCSLuaFile(filePath, entry.Name(), profile)
 		if err != nil {
-			fmt.Printf("  Avertissement: erreur lors du parsing de %s: %v\n", entry.Name(), err)
+			fmt.Printf("  Warning: error parsing %s: %v\n", entry.Name(), err)
 		}
 	}
 
@@ -178,13 +209,12 @@ func parseModifiersFile(filePath string, profile *common.Profile) {
 
 	fileContent := string(content)
 
-	// Pattern to match each modifier entry
+	// modifierPattern matches each modifier entry:
 	// ["Touche-JOY_BTN102"] = {
 	//     ["device"] = "WINWING ... {530648C0-98C7-11f0-8002-444553540000}",
 	//     ["key"] = "JOY_BTN102",
 	//     ["switch"] = true,
 	// },
-	modifierPattern := regexp.MustCompile(`(?s)\["([^"]+)"\]\s*=\s*\{[^}]*\["device"\]\s*=\s*"([^"]*\{([^}]+)\})"[^}]*\["key"\]\s*=\s*"([^"]+)"[^}]*\["switch"\]\s*=\s*(true|false)[^}]*\}`)
 	matches := modifierPattern.FindAllStringSubmatch(fileContent, -1)
 
 	for _, match := range matches {
@@ -241,154 +271,116 @@ func extractBalancedBraces(content string, startPos int) (string, int) {
 	return "", -1 // Unbalanced braces
 }
 
-// parseAxisDiffs extracts axis bindings from axisDiffs section
-func parseAxisDiffs(fileContent, guid, deviceName string, profile *common.Profile) {
-	// Find the start of axisDiffs block
-	axisDiffsStartPattern := regexp.MustCompile(`\["axisDiffs"\]\s*=\s*\{`)
-	axisDiffsStartMatch := axisDiffsStartPattern.FindStringIndex(fileContent)
-
-	var axisDiffsContent string
-	if axisDiffsStartMatch != nil {
-		// Find the opening brace position
-		bracePos := strings.Index(fileContent[axisDiffsStartMatch[0]:], "{")
-		if bracePos >= 0 {
-			actualBracePos := axisDiffsStartMatch[0] + bracePos
-			// Extract balanced braces content
-			content, endPos := extractBalancedBraces(fileContent, actualBracePos)
-			if endPos > 0 {
-				axisDiffsContent = content
-			}
-		}
+// extractSectionAfter locates pattern in content and returns the balanced-brace
+// block that follows it. Returns "" when the section is absent or unbalanced.
+func extractSectionAfter(content string, pattern *regexp.Regexp) string {
+	match := pattern.FindStringIndex(content)
+	if match == nil {
+		return ""
 	}
 
-	if axisDiffsContent != "" {
-		// Extract each axis block: ["a2001cdnil"] = { ... }
-		var axisBlocks []string
-		axisStartPattern := regexp.MustCompile(`\["a\d+[^"]*"\]\s*=\s*\{`)
-		matches := axisStartPattern.FindAllStringIndex(axisDiffsContent, -1)
+	bracePos := strings.Index(content[match[0]:], "{")
+	if bracePos < 0 {
+		return ""
+	}
 
-		for _, match := range matches {
-			// Find the opening brace
-			bracePos := strings.Index(axisDiffsContent[match[0]:], "{")
-			if bracePos >= 0 {
-				actualBracePos := match[0] + bracePos
-				// Extract the complete axis block
-				blockContent, endPos := extractBalancedBraces(axisDiffsContent, actualBracePos)
-				if endPos > 0 {
-					// Build the full block: key name + "= {" + content + "}"
-					keyPart := axisDiffsContent[match[0]:actualBracePos]
-					fullBlock := keyPart + "{" + blockContent + "}"
-					axisBlocks = append(axisBlocks, fullBlock)
-				}
-			}
+	block, endPos := extractBalancedBraces(content, match[0]+bracePos)
+	if endPos < 0 {
+		return ""
+	}
+	return block
+}
+
+// newJoyBinding builds a binding for a DCS JOY_ key. Bindings on the release edge
+// carry an "_OFF" input ID and get their action suffixed so both edges stay
+// distinguishable on the diagram.
+func newJoyBinding(guid, deviceName, joyKey, actionName string) common.Binding {
+	inputType, inputID := parseDCSJoyInput(joyKey)
+
+	displayAction := actionName
+	if strings.HasSuffix(inputID, "_OFF") {
+		displayAction = actionName + " (OFF)"
+	}
+
+	return common.Binding{
+		DeviceGUID: guid,
+		DeviceName: deviceName,
+		InputType:  inputType,
+		InputID:    inputID,
+		Action:     displayAction,
+	}
+}
+
+// extractAxisBlocks splits the axisDiffs section into one self-contained block per
+// axis: ["a2001cdnil"] = { ... }.
+func extractAxisBlocks(axisDiffsContent string) []string {
+	var axisBlocks []string
+
+	for _, match := range axisBlockStartPattern.FindAllStringIndex(axisDiffsContent, -1) {
+		bracePos := strings.Index(axisDiffsContent[match[0]:], "{")
+		if bracePos < 0 {
+			continue
 		}
 
-		axisNamePattern := regexp.MustCompile(`\["name"\]\s*=\s*"([^"]*)"`)
-		axisKeyPattern := regexp.MustCompile(`\["key"\]\s*=\s*"(JOY_[^"]+)"`)
+		actualBracePos := match[0] + bracePos
+		blockContent, endPos := extractBalancedBraces(axisDiffsContent, actualBracePos)
+		if endPos < 0 {
+			continue
+		}
 
-		for _, axisBlock := range axisBlocks {
-			// Extract action name
-			nameMatch := axisNamePattern.FindStringSubmatch(axisBlock)
-			if len(nameMatch) < 2 {
-				continue
+		// Rebuild the full block: key name + "{" + content + "}"
+		keyPart := axisDiffsContent[match[0]:actualBracePos]
+		axisBlocks = append(axisBlocks, keyPart+"{"+blockContent+"}")
+	}
+
+	return axisBlocks
+}
+
+// parseAxisDiffs extracts axis bindings from axisDiffs section
+func parseAxisDiffs(fileContent, guid, deviceName string, profile *common.Profile) {
+	axisDiffsContent := extractSectionAfter(fileContent, axisDiffsStartPattern)
+	if axisDiffsContent == "" {
+		return
+	}
+
+	for _, axisBlock := range extractAxisBlocks(axisDiffsContent) {
+		nameMatch := axisNamePattern.FindStringSubmatch(axisBlock)
+		if len(nameMatch) < 2 {
+			continue
+		}
+		actionName := nameMatch[1]
+
+		// Active bindings live under "changed" or, failing that, "added".
+		// Anything under "removed" is ignored.
+		bindingContent := extractSectionAfter(axisBlock, changedStartPattern)
+		if bindingContent == "" {
+			bindingContent = extractSectionAfter(axisBlock, addedStartPattern)
+		}
+		if bindingContent == "" {
+			continue
+		}
+
+		// Numbered entries [1] = { ... }, [2] = { ... }; older files carry the key
+		// directly in the section.
+		entryMatches := axisEntryPattern.FindAllStringSubmatch(bindingContent, -1)
+		if len(entryMatches) == 0 {
+			if keyMatch := joyKeyPattern.FindStringSubmatch(bindingContent); len(keyMatch) >= 2 {
+				profile.Bindings = append(profile.Bindings, newJoyBinding(guid, deviceName, keyMatch[1], actionName))
 			}
-			actionName := nameMatch[1]
+			continue
+		}
 
-			// Process "changed" or "added" axes (active bindings), ignore "removed"
-			var bindingContent string
-
-			changedStartPattern := regexp.MustCompile(`\["changed"\]\s*=\s*\{`)
-			addedStartPattern := regexp.MustCompile(`\["added"\]\s*=\s*\{`)
-
-			changedMatch := changedStartPattern.FindStringIndex(axisBlock)
-			addedMatch := addedStartPattern.FindStringIndex(axisBlock)
-
-			if changedMatch != nil {
-				bracePos := strings.Index(axisBlock[changedMatch[0]:], "{")
-				if bracePos >= 0 {
-					actualBracePos := changedMatch[0] + bracePos
-					content, _ := extractBalancedBraces(axisBlock, actualBracePos)
-					if content != "" {
-						bindingContent = content
-					}
-				}
-			} else if addedMatch != nil {
-				bracePos := strings.Index(axisBlock[addedMatch[0]:], "{")
-				if bracePos >= 0 {
-					actualBracePos := addedMatch[0] + bracePos
-					content, _ := extractBalancedBraces(axisBlock, actualBracePos)
-					if content != "" {
-						bindingContent = content
-					}
-				}
-			}
-
-			if bindingContent == "" {
-				continue // Skip removed/unchanged axes
-			}
-
-			// Extract all numbered entries [1] = { ... }, [2] = { ... }, etc.
-			entryPattern := regexp.MustCompile(`(?s)\[\d+\]\s*=\s*\{([^{}]*(?:\{[^{}]*(?:\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}[^{}]*)*\}[^{}]*)*)\}`)
-			entryMatches := entryPattern.FindAllStringSubmatch(bindingContent, -1)
-
-			if len(entryMatches) == 0 {
-				// Fallback: try to extract key directly if no numbered entries found
-				keyMatch := axisKeyPattern.FindStringSubmatch(bindingContent)
-				if len(keyMatch) >= 2 {
-					joyKey := keyMatch[1]
-					inputType, inputID := parseDCSJoyInput(joyKey)
-
-					// Add (OFF) suffix to action if this is an OFF binding
-					displayAction := actionName
-					if strings.HasSuffix(inputID, "_OFF") {
-						displayAction = actionName + " (OFF)"
-					}
-
-					binding := common.Binding{
-						DeviceGUID: guid,
-						DeviceName: deviceName,
-						InputType:  inputType,
-						InputID:    inputID,
-						Action:     displayAction,
-					}
-
-					profile.Bindings = append(profile.Bindings, binding)
-				}
+		for _, entryMatch := range entryMatches {
+			if len(entryMatch) < 2 {
 				continue
 			}
 
-			// Process each numbered entry separately
-			for _, entryMatch := range entryMatches {
-				if len(entryMatch) < 2 {
-					continue
-				}
-				entryContent := entryMatch[1]
-
-				// Extract JOY key from this entry
-				keyMatch := axisKeyPattern.FindStringSubmatch(entryContent)
-				if len(keyMatch) < 2 {
-					continue
-				}
-				joyKey := keyMatch[1]
-
-				inputType, inputID := parseDCSJoyInput(joyKey)
-
-				// Add (OFF) suffix to action if this is an OFF binding
-				displayAction := actionName
-				if strings.HasSuffix(inputID, "_OFF") {
-					displayAction = actionName + " (OFF)"
-				}
-
-				binding := common.Binding{
-					DeviceGUID: guid,
-					DeviceName: deviceName,
-					InputType:  inputType,
-					InputID:    inputID,
-					Action:     displayAction,
-				}
-
-				profile.Bindings = append(profile.Bindings, binding)
+			keyMatch := joyKeyPattern.FindStringSubmatch(entryMatch[1])
+			if len(keyMatch) < 2 {
+				continue
 			}
+
+			profile.Bindings = append(profile.Bindings, newJoyBinding(guid, deviceName, keyMatch[1], actionName))
 		}
 	}
 }
@@ -396,27 +388,16 @@ func parseAxisDiffs(fileContent, guid, deviceName string, profile *common.Profil
 // parseKeyDiffs extracts button bindings from keyDiffs section
 func parseKeyDiffs(fileContent, guid, deviceName string, profile *common.Profile) []common.Binding {
 	// First, extract the ["keyDiffs"] block
-	keyDiffsPattern := regexp.MustCompile(`(?s)\["keyDiffs"\]\s*=\s*\{(.*)\},?\s*\}\s*return diff`)
 	keyDiffsMatch := keyDiffsPattern.FindStringSubmatch(fileContent)
 
 	var blocks []string
 
 	if len(keyDiffsMatch) > 1 {
-		keyDiffsContent := keyDiffsMatch[1]
-
-		// Now extract each individual binding block from keyDiffs content
-		blockPattern := regexp.MustCompile(`(?s)\["d[^"]+"\]\s*=\s*\{(?:[^{}]|\{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*\})*\}`)
-		blocks = blockPattern.FindAllString(keyDiffsContent, -1)
+		blocks = diffBlockPattern.FindAllString(keyDiffsMatch[1], -1)
 	} else {
 		// Fallback to old pattern if keyDiffs not found
-		blockPattern := regexp.MustCompile(`(?s)\["[^"]+"\]\s*=\s*\{(?:[^{}]|\{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*\})*\}`)
-		blocks = blockPattern.FindAllString(fileContent, -1)
+		blocks = anyBlockPattern.FindAllString(fileContent, -1)
 	}
-
-	// Pattern to extract action name
-	namePattern := regexp.MustCompile(`\["name"\]\s*=\s*"([^"]+)"`)
-	// Pattern to extract complete "added" block with all nested structures
-	addedBlockPattern := regexp.MustCompile(`(?s)\["added"\]\s*=\s*\{((?:[^{}]|\{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*\})*)\}`)
 
 	var allBindings []common.Binding
 
@@ -441,8 +422,7 @@ func parseKeyDiffs(fileContent, guid, deviceName string, profile *common.Profile
 		addedContent := addedBlockMatch[1]
 
 		// Extract all numbered entries [1] = { ... }, [2] = { ... }, etc.
-		entryPattern := regexp.MustCompile(`(?s)\[\d+\]\s*=\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}`)
-		entryMatches := entryPattern.FindAllStringSubmatch(addedContent, -1)
+		entryMatches := keyEntryPattern.FindAllStringSubmatch(addedContent, -1)
 
 		if len(entryMatches) == 0 {
 			continue
@@ -456,40 +436,21 @@ func parseKeyDiffs(fileContent, guid, deviceName string, profile *common.Profile
 			entryContent := entryMatch[1]
 
 			// Extract the JOY key from this entry
-			keyPattern := regexp.MustCompile(`\["key"\]\s*=\s*"(JOY_[^"]+)"`)
-			keyMatch := keyPattern.FindStringSubmatch(entryContent)
+			keyMatch := joyKeyPattern.FindStringSubmatch(entryContent)
 			if len(keyMatch) < 2 {
 				continue
 			}
-			joyKey := keyMatch[1]
 
-			inputType, inputID := parseDCSJoyInput(joyKey)
-
-			// Add (OFF) suffix to action if this is an OFF binding
-			displayAction := actionName
-			if strings.HasSuffix(inputID, "_OFF") {
-				displayAction = actionName + " (OFF)"
-			}
-
-			binding := common.Binding{
-				DeviceGUID:  guid,
-				DeviceName:  deviceName,
-				InputType:   inputType,
-				InputID:     inputID,
-				Action:      displayAction,
-				Description: "",
-				Modifiers:   []common.Modifier{},
-			}
+			binding := newJoyBinding(guid, deviceName, keyMatch[1], actionName)
+			binding.Modifiers = []common.Modifier{}
 
 			// Extract reformers from this entry if they exist
-			reformersPattern := regexp.MustCompile(`(?s)\["reformers"\]\s*=\s*\{(.*?)\}`)
 			reformersMatch := reformersPattern.FindStringSubmatch(entryContent)
 
 			if len(reformersMatch) > 1 {
 				reformersContent := reformersMatch[1]
 				// Pattern to extract each modifier key: [1] = "VALUE"
-				modKeyPattern := regexp.MustCompile(`\[\d+\]\s*=\s*"([^"]+)"`)
-				modMatches := modKeyPattern.FindAllStringSubmatch(reformersContent, -1)
+				modMatches := numberedKeyPattern.FindAllStringSubmatch(reformersContent, -1)
 
 				if len(modMatches) > 0 {
 					for _, modMatch := range modMatches {
@@ -537,8 +498,7 @@ func parseDCSLuaFile(filePath, fileName string, profile *common.Profile) error {
 
 	// Simplified extraction of GUID and name
 	// Case-insensitive pattern to support uppercase and lowercase
-	guidPattern := regexp.MustCompile(`(?i)\{[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\}`)
-	guid := guidPattern.FindString(fileName)
+	guid := deviceGUIDPattern.FindString(fileName)
 
 	if guid == "" {
 		return fmt.Errorf("GUID not found in file name")
@@ -580,44 +540,24 @@ func parseDCSLuaFile(filePath, fileName string, profile *common.Profile) error {
 	// Create a map: JOY_key -> action name
 	keyToAction := make(map[string]string)
 	for _, b := range allBindings {
-		// Construire la clé JOY complète
-		var joyKey string
-		switch b.InputType {
-		case common.Button:
-			joyKey = "JOY_BTN" + b.InputID
-		case common.Axis:
-			joyKey = "JOY_" + b.InputID
-		case common.Hat:
-			// For HATs, build the key
-			joyKey = "JOY_" + b.InputID
-		}
-		keyToAction[joyKey] = b.Action
-	}
-
-	// Collect all keys used as modifiers
-	modifierKeys := make(map[string]bool)
-	for i := range allBindings {
-		for _, modifier := range allBindings[i].Modifiers {
-			for _, key := range modifier.Keys {
-				modifierKeys[key] = true
-			}
-		}
+		keyToAction[joyKeyFor(b)] = b.Action
 	}
 
 	// Now, resolve modifier actions
 	for i := range allBindings {
 		for j := range allBindings[i].Modifiers {
 			modifier := &allBindings[i].Modifiers[j]
-			// Résoudre chaque clé
-			if len(modifier.Keys) > 0 {
-				// Prendre la première clé pour trouver l'action
-				firstKey := modifier.Keys[0]
-				if action, found := keyToAction[firstKey]; found {
-					modifier.Action = action
-				} else {
-					// Si on ne trouve pas l'action, utiliser la clé elle-même
-					modifier.Action = firstKey
-				}
+			if len(modifier.Keys) == 0 {
+				continue
+			}
+
+			// The first key identifies the modifier; fall back to the key itself
+			// when no binding defines an action for it.
+			firstKey := modifier.Keys[0]
+			if action, found := keyToAction[firstKey]; found {
+				modifier.Action = action
+			} else {
+				modifier.Action = firstKey
 			}
 		}
 	}
@@ -674,7 +614,6 @@ func parseDCSJoyInput(input string) (common.InputType, string) {
 	// Axes: X, Y, Z, RX, RY, RZ, SLIDER1, SLIDER2, etc.
 	if strings.Contains(input, "SLIDER") {
 		// Convert SLIDER1 -> SLIDER_1, SLIDER2 -> SLIDER_2, etc.
-		sliderPattern := regexp.MustCompile(`^SLIDER(\d+)$`)
 		if match := sliderPattern.FindStringSubmatch(input); len(match) > 1 {
 			return common.Axis, fmt.Sprintf("SLIDER_%s", match[1])
 		}
@@ -682,7 +621,7 @@ func parseDCSJoyInput(input string) (common.InputType, string) {
 	}
 
 	// Standard axes
-	if matched, _ := regexp.MatchString(`^R?[XYZ]$`, input); matched {
+	if standardAxisPattern.MatchString(input) {
 		return common.Axis, input
 	}
 
@@ -695,13 +634,11 @@ func parseDCSJoyInput(input string) (common.InputType, string) {
 // Keyboard keys are prefixed with "KEY_" in DCS
 func parseKeyboardBindingsFromLua(fileContent string, profile *common.Profile) {
 	// Extract keyDiffs block
-	keyDiffsPattern := regexp.MustCompile(`(?s)\["keyDiffs"\]\s*=\s*\{(.*)\},?\s*\}\s*return diff`)
 	keyDiffsMatch := keyDiffsPattern.FindStringSubmatch(fileContent)
 
 	if len(keyDiffsMatch) < 2 {
 		// Try alternate pattern without "return diff"
-		keyDiffsPattern2 := regexp.MustCompile(`(?s)\["keyDiffs"\]\s*=\s*\{(.*)\}`)
-		keyDiffsMatch = keyDiffsPattern2.FindStringSubmatch(fileContent)
+		keyDiffsMatch = keyDiffsLoosePattern.FindStringSubmatch(fileContent)
 		if len(keyDiffsMatch) < 2 {
 			return
 		}
@@ -710,12 +647,7 @@ func parseKeyboardBindingsFromLua(fileContent string, profile *common.Profile) {
 	keyDiffsContent := keyDiffsMatch[1]
 
 	// Extract individual binding blocks
-	blockPattern := regexp.MustCompile(`(?s)\["d[^"]+"\]\s*=\s*\{(?:[^{}]|\{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*\})*\}`)
-	blocks := blockPattern.FindAllString(keyDiffsContent, -1)
-
-	namePattern := regexp.MustCompile(`\["name"\]\s*=\s*"([^"]+)"`)
-	addedBlockPattern := regexp.MustCompile(`(?s)\["added"\]\s*=\s*\{((?:[^{}]|\{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*\})*)\}`)
-	keyPattern := regexp.MustCompile(`\["key"\]\s*=\s*"([^"]+)"`) // Accept any key format, not just KEY_
+	blocks := diffBlockPattern.FindAllString(keyDiffsContent, -1)
 
 	for _, block := range blocks {
 		// Only process "added" bindings
@@ -738,7 +670,7 @@ func parseKeyboardBindingsFromLua(fileContent string, profile *common.Profile) {
 		addedContent := addedBlockMatch[1]
 
 		// Look for keyboard keys (KEY_* or simple keys like F1, G, etc.)
-		keyMatches := keyPattern.FindAllStringSubmatch(addedContent, -1)
+		keyMatches := anyKeyPattern.FindAllStringSubmatch(addedContent, -1)
 		for _, keyMatch := range keyMatches {
 			if len(keyMatch) < 2 {
 				continue
@@ -796,8 +728,7 @@ func parseDefaultKeyboardBindings(profile *common.Profile) {
 
 	// Parse the default.lua file format: {combos = {{key = 'F1'}}, down = iCommandViewCockpit, name = _('F1 Cockpit view'), ...}
 	// We're interested in simple key bindings (no reformers/modifiers)
-	pattern := regexp.MustCompile(`\{combos\s*=\s*\{\{key\s*=\s*'([^']+)'\}\},\s*down\s*=\s*[^,]+,\s*name\s*=\s*_\('([^']+)'\)`)
-	matches := pattern.FindAllStringSubmatch(string(content), -1)
+	matches := defaultCombosPatern.FindAllStringSubmatch(string(content), -1)
 
 	for _, match := range matches {
 		if len(match) < 3 {
@@ -828,201 +759,119 @@ func parseDefaultKeyboardBindings(profile *common.Profile) {
 	}
 }
 
-// createPureKeyBinding creates a binding for a modifier or switch key
-func createPureKeyBinding(profile *common.Profile, key, keyType string, keyToDevice map[string]struct{ guid, name string }) {
-	// Try to get device info from ModifierDeviceMap first
-	var deviceInfo struct {
-		guid string
-		name string
-	}
-	found := false
-
-	if profile.ModifierDeviceMap != nil {
-		if modInfo, exists := profile.ModifierDeviceMap[key]; exists {
-			deviceInfo = struct {
-				guid string
-				name string
-			}{guid: modInfo.DeviceGUID, name: modInfo.DeviceName}
-			found = true
-		}
-	}
-
-	// Fallback to keyToDevice if not found in ModifierDeviceMap
-	if !found {
-		deviceInfo, found = keyToDevice[key]
-	}
-
-	if found {
-		// Found the device owner, create the binding
-		inputType, inputID := parseDCSJoyInput(key)
-		// Format: "Modifier BTN80" or "Switch BTN105"
-		var displayText string
-		if strings.HasPrefix(key, "JOY_BTN") {
-			displayText = fmt.Sprintf("%s BTN%s", keyType, strings.TrimPrefix(key, "JOY_BTN"))
-		} else {
-			displayText = fmt.Sprintf("%s: %s", keyType, key)
-		}
-		binding := common.Binding{
-			DeviceGUID:  deviceInfo.guid,
-			DeviceName:  deviceInfo.name,
-			InputType:   inputType,
-			InputID:     inputID,
-			Action:      displayText,
-			Modifiers:   []common.Modifier{},
-			ModifierKey: key, // Mark this as a modifier definition
-		}
-		profile.Bindings = append(profile.Bindings, binding)
-	}
+// deviceRef identifies the device that owns a JOY_ key.
+type deviceRef struct {
+	guid string
+	name string
 }
 
-// createModifierBinding creates a modifier binding with the specified ModifierNum for color coding
-func createModifierBinding(profile *common.Profile, key string, modifierNum int, deviceGUID, deviceName string, keyToDevice map[string]struct{ guid, name string }) {
-	// Try to get device info from parameters first, then fallback to keyToDevice
-	var deviceInfo struct {
-		guid string
-		name string
+// joyKeyFor rebuilds the DCS key a binding came from: "JOY_BTN24", "JOY_X",
+// "JOY_1_U". It is the inverse of parseDCSJoyInput.
+func joyKeyFor(b common.Binding) string {
+	if b.InputType == common.Button {
+		return "JOY_BTN" + b.InputID
 	}
-	found := false
+	return "JOY_" + b.InputID
+}
 
-	if deviceGUID != "" && deviceName != "" {
-		deviceInfo = struct {
-			guid string
-			name string
-		}{guid: deviceGUID, name: deviceName}
-		found = true
-	} else {
-		deviceInfo, found = keyToDevice[key]
+// buildKeyToDeviceMap indexes the profile's bindings by JOY_ key so that a
+// modifier or switch key can be traced back to the device carrying it.
+func buildKeyToDeviceMap(profile *common.Profile) map[string]deviceRef {
+	keyToDevice := make(map[string]deviceRef)
+	for _, b := range profile.Bindings {
+		keyToDevice[joyKeyFor(b)] = deviceRef{guid: b.DeviceGUID, name: b.DeviceName}
+	}
+	return keyToDevice
+}
+
+// modifierDeviceRef returns the device declared as owning key in modifiers.lua.
+func modifierDeviceRef(profile *common.Profile, key string) (deviceRef, bool) {
+	modInfo, exists := profile.ModifierDeviceMap[key]
+	if !exists {
+		return deviceRef{}, false
+	}
+	return deviceRef{guid: modInfo.DeviceGUID, name: modInfo.DeviceName}, true
+}
+
+// appendKeyRoleBinding records that key acts as a modifier or a switch ("Modifier"
+// or "Switch" in keyType), attributing it to owner. modifierNum drives the colour
+// coding and is normally assigned later by AssignModifierNumbers.
+func appendKeyRoleBinding(profile *common.Profile, key, keyType string, owner deviceRef, modifierNum int) {
+	inputType, inputID := parseDCSJoyInput(key)
+
+	// Format: "Modifier BTN24" / "Switch BTN105", or "Modifier: <key>" for non-button keys
+	displayText := fmt.Sprintf("%s: %s", keyType, key)
+	if btn, ok := strings.CutPrefix(key, "JOY_BTN"); ok {
+		displayText = fmt.Sprintf("%s BTN%s", keyType, btn)
 	}
 
-	if found {
-		// Found the device owner, create the binding
-		inputType, inputID := parseDCSJoyInput(key)
-		// Format: "Modifier BTN24" (the number will be assigned later by AssignModifierNumbers)
-		var displayText string
-		if strings.HasPrefix(key, "JOY_BTN") {
-			displayText = fmt.Sprintf("Modifier BTN%s", strings.TrimPrefix(key, "JOY_BTN"))
-		} else {
-			displayText = fmt.Sprintf("Modifier: %s", key)
+	profile.Bindings = append(profile.Bindings, common.Binding{
+		DeviceGUID:  owner.guid,
+		DeviceName:  owner.name,
+		InputType:   inputType,
+		InputID:     inputID,
+		Action:      displayText,
+		Modifiers:   []common.Modifier{},
+		ModifierNum: modifierNum,
+		ModifierKey: key, // Mark this as a modifier definition
+	})
+}
+
+// hasBindingOn reports whether the profile already carries a binding on key for
+// deviceGUID that satisfies match.
+func hasBindingOn(profile *common.Profile, key, deviceGUID string, match func(common.Binding) bool) bool {
+	for _, b := range profile.Bindings {
+		if joyKeyFor(b) == key && b.DeviceGUID == deviceGUID && match(b) {
+			return true
 		}
-
-		binding := common.Binding{
-			DeviceGUID:  deviceInfo.guid,
-			DeviceName:  deviceInfo.name,
-			InputType:   inputType,
-			InputID:     inputID,
-			Action:      displayText,
-			Modifiers:   []common.Modifier{},
-			ModifierNum: modifierNum, // Set the ModifierNum for color coding
-			ModifierKey: key,         // Mark this as a modifier definition
-		}
-		profile.Bindings = append(profile.Bindings, binding)
 	}
+	return false
+}
+
+// collectUsedModifierKeys returns the keys actually referenced as modifiers by at
+// least one action binding. Modifier definitions themselves are skipped.
+func collectUsedModifierKeys(profile *common.Profile) map[string]bool {
+	used := make(map[string]bool)
+	for _, b := range profile.Bindings {
+		if strings.HasPrefix(b.Action, "Modifier") {
+			continue
+		}
+		for _, mod := range b.Modifiers {
+			for _, key := range mod.Keys {
+				used[key] = true
+			}
+		}
+	}
+	return used
 }
 
 // createPureModifierBindings creates bindings for buttons used only as modifiers
 // This is called after all device files have been parsed to ensure we can find the correct device owner
 func createPureModifierBindings(profile *common.Profile) {
-	// Collect all keys defined as modifiers (not switches) in modifiers.lua
-	modifierKeys := make(map[string]bool)
+	keyToDevice := buildKeyToDeviceMap(profile)
 
-	// Get all modifiers from ModifierDeviceMap (from modifiers.lua)
-	if profile.ModifierDeviceMap != nil {
-		for key, modInfo := range profile.ModifierDeviceMap {
-			if !modInfo.IsSwitch {
-				modifierKeys[key] = true
-			}
-		}
-	}
+	isModifierBinding := func(b common.Binding) bool { return strings.HasPrefix(b.Action, "Modifier") }
 
-	// Build a map: JOY_key -> device info (from all existing bindings)
-	keyToDevice := make(map[string]struct {
-		guid string
-		name string
-	})
+	for modKey := range collectUsedModifierKeys(profile) {
+		declared, declaredOK := modifierDeviceRef(profile, modKey)
 
-	for _, b := range profile.Bindings {
-		var joyKey string
-		switch b.InputType {
-		case common.Button:
-			joyKey = "JOY_BTN" + b.InputID
-		case common.Axis:
-			joyKey = "JOY_" + b.InputID
-		case common.Hat:
-			joyKey = "JOY_" + b.InputID
-		}
-
-		if joyKey != "" {
-			keyToDevice[joyKey] = struct {
-				guid string
-				name string
-			}{guid: b.DeviceGUID, name: b.DeviceName}
-		}
-	}
-
-	// Collect all modifiers that are ACTUALLY USED in bindings
-	usedModifiers := make(map[string]bool)
-
-	// Scan all bindings to find which keys are used as modifiers
-	for _, b := range profile.Bindings {
-		// Skip bindings that are themselves modifier definitions
-		if strings.HasPrefix(b.Action, "Modifier") {
+		// Switches are handled by createPureSwitchBindings
+		if modInfo, exists := profile.ModifierDeviceMap[modKey]; exists && modInfo.IsSwitch {
 			continue
 		}
 
-		// If this binding has modifiers, record them
-		if len(b.Modifiers) > 0 {
-			for _, mod := range b.Modifiers {
-				for _, key := range mod.Keys {
-					usedModifiers[key] = true
-				}
-			}
-		}
-	}
-
-	// Create bindings for modifiers that are ACTUALLY USED
-	// ModifierNum will be assigned later by AssignModifierNumbers()
-	for modKey := range usedModifiers {
-		// Skip if this is actually a switch (not a modifier)
-		if profile.ModifierDeviceMap != nil {
-			if modInfo, exists := profile.ModifierDeviceMap[modKey]; exists && modInfo.IsSwitch {
-				continue // This is a switch, will be handled by createPureSwitchBindings
+		// Prefer the device declared in modifiers.lua, fall back to the device
+		// carrying an existing binding on that key.
+		owner := declared
+		if !declaredOK || owner.guid == "" || owner.name == "" {
+			var found bool
+			if owner, found = keyToDevice[modKey]; !found {
+				continue
 			}
 		}
 
-		// Get the device info for this modifier key from ModifierDeviceMap
-		var expectedDeviceGUID string
-		var expectedDeviceName string
-		if profile.ModifierDeviceMap != nil {
-			if modInfo, exists := profile.ModifierDeviceMap[modKey]; exists {
-				expectedDeviceGUID = modInfo.DeviceGUID
-				expectedDeviceName = modInfo.DeviceName
-			}
-		}
-
-		// Check if a "Modifier" binding already exists for this key on this device
-		hasModifierBinding := false
-		for _, b := range profile.Bindings {
-			var joyKey string
-			switch b.InputType {
-			case common.Button:
-				joyKey = "JOY_BTN" + b.InputID
-			case common.Axis:
-				joyKey = "JOY_" + b.InputID
-			case common.Hat:
-				joyKey = "JOY_" + b.InputID
-			}
-
-			// Check if this is already a "Modifier" binding for this key and device
-			if joyKey == modKey && b.DeviceGUID == expectedDeviceGUID && strings.HasPrefix(b.Action, "Modifier") {
-				hasModifierBinding = true
-				break
-			}
-		}
-
-		// If no "Modifier" binding exists yet, create one
-		// ModifierNum will be assigned later by AssignModifierNumbers()
-		if !hasModifierBinding {
-			createModifierBinding(profile, modKey, 0, expectedDeviceGUID, expectedDeviceName, keyToDevice)
+		if !hasBindingOn(profile, modKey, declared.guid, isModifierBinding) {
+			appendKeyRoleBinding(profile, modKey, "Modifier", owner, 0)
 		}
 	}
 }
@@ -1030,77 +879,25 @@ func createPureModifierBindings(profile *common.Profile) {
 // createPureSwitchBindings creates bindings for buttons used only as switches
 // This is called after all device files have been parsed to ensure we can find the correct device owner
 func createPureSwitchBindings(profile *common.Profile) {
-	// Collect all keys defined as switches in modifiers.lua
-	switchKeys := make(map[string]bool)
-
-	// Get all switches from ModifierDeviceMap (from modifiers.lua)
-	if profile.ModifierDeviceMap != nil {
-		for key, modInfo := range profile.ModifierDeviceMap {
-			if modInfo.IsSwitch {
-				switchKeys[key] = true
-			}
-		}
+	isPlainAction := func(b common.Binding) bool {
+		return !strings.HasPrefix(b.Action, "Switch") && !strings.HasPrefix(b.Action, "Modifier")
 	}
 
-	// Build a map: JOY_key -> device info (from all existing bindings)
-	keyToDevice := make(map[string]struct {
-		guid string
-		name string
-	})
-
-	for _, b := range profile.Bindings {
-		var joyKey string
-		switch b.InputType {
-		case common.Button:
-			joyKey = "JOY_BTN" + b.InputID
-		case common.Axis:
-			joyKey = "JOY_" + b.InputID
-		case common.Hat:
-			joyKey = "JOY_" + b.InputID
+	// Switch keys are always declared in modifiers.lua, so their owning device is
+	// always known - no fallback to the bindings index is needed here.
+	for switchKey, modInfo := range profile.ModifierDeviceMap {
+		if !modInfo.IsSwitch {
+			continue
 		}
 
-		if joyKey != "" {
-			keyToDevice[joyKey] = struct {
-				guid string
-				name string
-			}{guid: b.DeviceGUID, name: b.DeviceName}
-		}
-	}
-
-	// Create bindings for pure switches (used as switch but has no action binding)
-	for switchKey := range switchKeys {
-		// Get the device info for this switch key from ModifierDeviceMap
-		var expectedDeviceGUID string
-		if profile.ModifierDeviceMap != nil {
-			if modInfo, exists := profile.ModifierDeviceMap[switchKey]; exists {
-				expectedDeviceGUID = modInfo.DeviceGUID
-			}
+		// A switch that already has a real action on its own device needs no
+		// dedicated "Switch" binding.
+		if hasBindingOn(profile, switchKey, modInfo.DeviceGUID, isPlainAction) {
+			continue
 		}
 
-		// Check if this key already has an action binding on the SAME device
-		hasAction := false
-		for _, b := range profile.Bindings {
-			var joyKey string
-			switch b.InputType {
-			case common.Button:
-				joyKey = "JOY_BTN" + b.InputID
-			case common.Axis:
-				joyKey = "JOY_" + b.InputID
-			case common.Hat:
-				joyKey = "JOY_" + b.InputID
-			}
-
-			// Check both key AND device match
-			if joyKey == switchKey && b.DeviceGUID == expectedDeviceGUID && !strings.HasPrefix(b.Action, "Switch") && !strings.HasPrefix(b.Action, "Modifier") {
-				hasAction = true
-				break
-			}
-		}
-
-		// If no action binding exists, create a "pure switch" binding
-		if !hasAction {
-			createPureKeyBinding(profile, switchKey, "Switch", keyToDevice)
-		}
+		owner := deviceRef{guid: modInfo.DeviceGUID, name: modInfo.DeviceName}
+		appendKeyRoleBinding(profile, switchKey, "Switch", owner, 0)
 	}
 }
 

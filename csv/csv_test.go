@@ -8,16 +8,9 @@ import (
 	"testing"
 )
 
-// TestGetHeaderString tests CSV header generation
-func TestGetHeaderString(t *testing.T) {
-	header := GetHeaderString()
-
-	// Check that header ends with newline
-	if !strings.HasSuffix(header, "\n") {
-		t.Error("GetHeaderString() should end with newline")
-	}
-
-	// Check that all columns are present
+// TestAllColumnsOrder pins the CSV header names and their order, which the SVG
+// importer relies on to read back exports.
+func TestAllColumnsOrder(t *testing.T) {
 	expectedColumns := []string{
 		"Simulator",
 		"Module",
@@ -34,20 +27,13 @@ func TestGetHeaderString(t *testing.T) {
 		"Template",
 	}
 
-	headerWithoutNewline := strings.TrimSuffix(header, "\n")
-	columns := strings.Split(headerWithoutNewline, ",")
-
-	if len(columns) != len(expectedColumns) {
-		t.Errorf("GetHeaderString() returned %d columns, want %d", len(columns), len(expectedColumns))
+	if len(AllColumns) != len(expectedColumns) {
+		t.Fatalf("AllColumns has %d columns, want %d", len(AllColumns), len(expectedColumns))
 	}
 
 	for i, expected := range expectedColumns {
-		if i >= len(columns) {
-			t.Errorf("Missing column at index %d: %q", i, expected)
-			continue
-		}
-		if columns[i] != expected {
-			t.Errorf("Column %d = %q, want %q", i, columns[i], expected)
+		if AllColumns[i] != expected {
+			t.Errorf("Column %d = %q, want %q", i, AllColumns[i], expected)
 		}
 	}
 }

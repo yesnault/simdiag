@@ -1,7 +1,5 @@
 package csv
 
-import "strings"
-
 // CSV column names (constants for maintainability)
 const (
 	ColSimulator          = "Simulator"
@@ -34,9 +32,4 @@ var AllColumns = []string{
 	ColVirtualInput,
 	ColTemplateKey,
 	ColTemplate,
-}
-
-// GetHeaderString returns the CSV header as a string
-func GetHeaderString() string {
-	return strings.Join(AllColumns, ",") + "\n"
 }

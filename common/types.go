@@ -1,17 +1,18 @@
 package common
 
+import "strings"
+
 // SimdiagVersion holds the version string set by the main package
 var SimdiagVersion = "dev"
 
 // ExternalFuncs holds function dependencies that are injected from main
 type ExternalFuncs struct {
-	GetTargetDeviceNumbers             func(string) ([]int, error)
-	AutoMatchTargetDevices             func([]int, []*Device) []TargetDeviceMapping
-	TargetDeviceNumberToName           func(int) string
-	GetUnmatchedTargetDevices          func([]int, []TargetDeviceMapping) []int
-	LoadGremlinsBindingsForDevice      func(string, *Config) interface{} // Returns package-specific binding type
-	LoadOpenKneeboardBindingsForDevice func(string, *Config) interface{} // Returns package-specific binding type
-	ParseGremlinsProfile               func(string) (interface{}, error) // Returns package-specific binding type
+	GetTargetDeviceNumbers            func(string) ([]int, error)
+	AutoMatchTargetDevices            func([]int, []*Device) []TargetDeviceMapping
+	TargetDeviceNumberToName          func(int) string
+	GetUnmatchedTargetDevices         func([]int, []TargetDeviceMapping) []int
+	HasGremlinsBindingsForDevice      func(string, *Config) bool
+	HasOpenKneeboardBindingsForDevice func(string, *Config) bool
 }
 
 // ExtFuncs is the global instance of external functions
@@ -23,18 +24,12 @@ type SimulatorParser interface {
 	Parse(configPath string) (*ProfileCollection, error)
 	// GetName returns the human-readable name of the simulator
 	GetName() string
-	// GetType returns the SimulationType
-	GetType() SimulationType
 }
 
 // BindingEnricher defines the interface for enriching bindings from external tools
 type BindingEnricher interface {
 	// Enrich adds bindings from external tools to an ExportDevice
 	Enrich(exportDevice *ExportDevice, fullProfile *Profile, config *Config)
-	// GetName returns the human-readable name of the enricher
-	GetName() string
-	// IsAvailable checks if the enricher's configuration is available
-	IsAvailable(config *Config) bool
 }
 
 // Configurable defines the interface for components that need interactive configuration
@@ -68,6 +63,49 @@ func (s SimulationType) GetConfigKey() string {
 	default:
 		return string(s)
 	}
+}
+
+// ModuleKey returns the value written to the CSV "Module" column: the DCS module
+// name, or a fixed label for the non-modular simulators.
+func ModuleKey(simType SimulationType, module string) string {
+	switch simType {
+	case DCSWorld:
+		return module
+	case IL2Sturmovik:
+		return "il2"
+	case IL2Korea:
+		return "il2-korea"
+	}
+	return ""
+}
+
+// OutputSubdir returns the directory, under the configured output directory, that
+// holds the diagrams for a simulator/module pair. An empty result means the
+// diagrams go straight into the output directory.
+func OutputSubdir(simType SimulationType, module string) string {
+	switch {
+	case simType == DCSWorld && module != "":
+		return "dcs-" + NormalizeModuleName(module)
+	case simType == IL2Sturmovik:
+		return "il2"
+	case simType == IL2Korea:
+		return "il2-korea"
+	}
+	return ""
+}
+
+// ExportTitle returns the title stamped on a diagram. fallback is used for
+// simulator/module pairs that have no fixed title (typically the device name).
+func ExportTitle(simType SimulationType, module, fallback string) string {
+	switch {
+	case simType == DCSWorld && module != "":
+		return "DCS World / " + strings.ToUpper(module)
+	case simType == IL2Sturmovik:
+		return "IL-2 Sturmovik"
+	case simType == IL2Korea:
+		return "IL-2 Korea"
+	}
+	return fallback
 }
 
 // Device represents a control device
@@ -107,6 +145,16 @@ type Binding struct {
 	ModifierKey   string     // If this binding IS a modifier definition, this is the key (e.g., "JOY_BTN105", "GREMLINS_MODE_Shift")
 	VirtualDevice string     // Virtual device name (e.g., "vJoy Device #1") if using Gremlins remap, empty otherwise
 	VirtualInput  string     // Virtual input (e.g., "BTN27", "LShift + Quote") if using Gremlins, empty otherwise
+}
+
+// DisplayText returns the text shown for this binding in CSV exports and diagrams.
+// IL-2 carries a human-readable Description (e.g. "Suralimentation"); DCS and SRS
+// only have an Action.
+func (b Binding) DisplayText() string {
+	if b.Description != "" {
+		return b.Description
+	}
+	return b.Action
 }
 
 // Profile represents a complete configuration profile

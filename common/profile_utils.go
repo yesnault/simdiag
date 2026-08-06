@@ -98,18 +98,10 @@ func hasExternalBindingsForGUID(guid string, config *Config) bool {
 		return false
 	}
 
-	if gremlinsBindings := ExtFuncs.LoadGremlinsBindingsForDevice(guid, config); gremlinsBindings != nil {
-		return true
-	}
-
-	if openKneeboardBindings := ExtFuncs.LoadOpenKneeboardBindingsForDevice(guid, config); openKneeboardBindings != nil {
-		return true
-	}
-
-	return false
+	return ExtFuncs.HasGremlinsBindingsForDevice(guid, config) ||
+		ExtFuncs.HasOpenKneeboardBindingsForDevice(guid, config)
 }
 
-// loadDeviceTemplate loads a template for a single device
 // getTemplatePath gets the absolute path to a template from mapping
 func getTemplatePath(mapping *DeviceTemplateMapping, config *Config) string {
 	if mapping == nil {

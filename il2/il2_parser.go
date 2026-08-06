@@ -7,8 +7,10 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"simdiag/common"
+	"strconv"
 	"strings"
+
+	"simdiag/common"
 )
 
 // Parser implements the SimulatorParser interface for IL-2 Sturmovik
@@ -27,11 +29,6 @@ func (p *Parser) Parse(basePath string) (*common.ProfileCollection, error) {
 // GetName implements SimulatorParser.GetName
 func (p *Parser) GetName() string {
 	return "IL-2 Sturmovik"
-}
-
-// GetType implements SimulatorParser.GetType
-func (p *Parser) GetType() common.SimulationType {
-	return common.IL2Sturmovik
 }
 
 // parseIL2 parses IL-2 Sturmovik configuration files
@@ -231,6 +228,129 @@ func LoadActionDescriptions(globalActionsPath string) map[string]string {
 	return extractActionDescriptions(DecodeIL2Text(fileBytes))
 }
 
+// Patterns for the device references found in global.actions
+var (
+	joyButtonPattern = regexp.MustCompile(`^joy(\d+)_b(\d+)$`)
+	joyAxisPattern   = regexp.MustCompile(`^joy(\d+)_axis_([xyzwqsturp])$`)
+	joyPovPattern    = regexp.MustCompile(`^joy(\d+)_pov(\d+)_(\d+)$`)
+)
+
+// actionLine holds one parsed line of global.actions.
+type actionLine struct {
+	action      string
+	description string
+	deviceRef   string
+}
+
+// parseActionLine splits a global.actions line into its action name, its
+// human-readable description and its device reference. It reports false for
+// blank lines, comments and malformed entries.
+func parseActionLine(line string, actionDescriptions map[string]string) (actionLine, bool) {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" ||
+		strings.HasPrefix(trimmed, "//") ||
+		strings.HasPrefix(trimmed, "#") ||
+		strings.HasPrefix(trimmed, "&actions=") {
+		return actionLine{}, false
+	}
+
+	// Everything after "|" is a comment
+	bindingPart, _, found := strings.Cut(line, "|")
+	if !found {
+		return actionLine{}, false
+	}
+
+	// Binding part: action_name, device_ref, invert
+	bindingFields := strings.Split(strings.TrimSpace(bindingPart), ",")
+	if len(bindingFields) < 2 {
+		return actionLine{}, false
+	}
+
+	action := strings.TrimSpace(bindingFields[0])
+
+	description := actionDescriptions[action]
+	if description == "" {
+		description = action // Fallback to action name if no description found
+	}
+
+	return actionLine{
+		action:      action,
+		description: description,
+		deviceRef:   strings.TrimSpace(bindingFields[1]),
+	}, true
+}
+
+// lookupDevice resolves an IL-2 joy number to the device it refers to. warn
+// enables the diagnostics printed for button bindings only, matching the
+// historical output.
+func lookupDevice(devices map[string]*common.Device, joyNum string, warn bool) (*common.Device, string) {
+	deviceGUID := findDeviceGUIDByConfigID(devices, joyNum)
+	if deviceGUID == "" {
+		if warn {
+			fmt.Printf("  [IL2] Warning: No device found for joy%s (button binding)\n", joyNum)
+		}
+		return nil, ""
+	}
+
+	compositeKey := fmt.Sprintf("%s:%s", joyNum, deviceGUID)
+	device := devices[compositeKey]
+	if device == nil {
+		if warn {
+			fmt.Printf("  [IL2] Warning: Device is nil for key '%s'\n", compositeKey)
+		}
+		return nil, ""
+	}
+
+	return device, deviceGUID
+}
+
+// bindingForRef converts a single IL-2 device reference (joy1_b12, joy1_axis_x,
+// joy1_pov0_90) into a binding. It returns nil for unrecognised references and
+// for references naming an unknown device.
+func bindingForRef(ref string, line actionLine, devices map[string]*common.Device) *common.Binding {
+	newBinding := func(device *common.Device, guid string, inputType common.InputType, inputID string) *common.Binding {
+		return &common.Binding{
+			DeviceGUID:  guid,
+			DeviceName:  device.Name,
+			InputType:   inputType,
+			InputID:     inputID,
+			Action:      line.action,
+			Description: line.description,
+		}
+	}
+
+	if matches := joyButtonPattern.FindStringSubmatch(ref); matches != nil {
+		device, guid := lookupDevice(devices, matches[1], true)
+		if device == nil {
+			return nil
+		}
+		// IL-2 button numbers are 0-based, we use 1-based
+		btnNum, _ := strconv.Atoi(matches[2])
+		return newBinding(device, guid, common.Button, strconv.Itoa(btnNum+1))
+	}
+
+	if matches := joyAxisPattern.FindStringSubmatch(ref); matches != nil {
+		device, guid := lookupDevice(devices, matches[1], false)
+		if device == nil {
+			return nil
+		}
+		return newBinding(device, guid, common.Axis, AxisLetterToAxisID(matches[2]))
+	}
+
+	if matches := joyPovPattern.FindStringSubmatch(ref); matches != nil {
+		device, guid := lookupDevice(devices, matches[1], false)
+		if device == nil {
+			return nil
+		}
+		// POV numbers are 0-based too
+		povNum, _ := strconv.Atoi(matches[2])
+		hatDirection := fmt.Sprintf("%d_%s", povNum+1, PovAngleToDirection(matches[3]))
+		return newBinding(device, guid, common.Hat, hatDirection)
+	}
+
+	return nil
+}
+
 // parseIL2GlobalActions parses the global.actions file
 func parseIL2GlobalActions(actionsPath string, profile *common.Profile, devices map[string]*common.Device) error {
 	// Read file as bytes first
@@ -246,177 +366,34 @@ func parseIL2GlobalActions(actionsPath string, profile *common.Profile, devices 
 
 	// Second pass: parse bindings
 	scanner := bufio.NewScanner(strings.NewReader(content))
-
-	// Patterns for different input types
-	buttonPattern := regexp.MustCompile(`^joy(\d+)_b(\d+)$`)
-	axisPattern := regexp.MustCompile(`^joy(\d+)_axis_([xyzwqsturp])$`)
-	povPattern := regexp.MustCompile(`^joy(\d+)_pov(\d+)_(\d+)$`)
-
-	lineNum := 0
 	for scanner.Scan() {
-		lineNum++
-		line := scanner.Text()
-
-		// Skip empty lines, comments, and header
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "//") || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, "&actions=") {
+		line, ok := parseActionLine(scanner.Text(), actionDescriptions)
+		if !ok {
 			continue
 		}
 
-		// Split by | to separate binding from comment
-		if !strings.Contains(line, "|") {
-			continue
-		}
-
-		parts := strings.Split(line, "|")
-		bindingPart := strings.TrimSpace(parts[0])
-
-		// Parse binding part: action_name, device_ref, invert
-		bindingFields := strings.Split(bindingPart, ",")
-		if len(bindingFields) < 2 {
-			continue
-		}
-
-		actionName := strings.TrimSpace(bindingFields[0])
-		deviceRef := strings.TrimSpace(bindingFields[1])
-
-		// Get description from our pre-built mapping
-		description := actionDescriptions[actionName]
-		if description == "" {
-			description = actionName // Fallback to action name if no description found
-		}
-
-		// Handle keyboard bindings (for TARGET matching only, not for display)
-		if strings.HasPrefix(deviceRef, "key_") {
-			// Parse keyboard binding
-			binding := common.Binding{
+		// Keyboard bindings are kept for TARGET matching only, never displayed
+		if strings.HasPrefix(line.deviceRef, "key_") {
+			profile.Bindings = append(profile.Bindings, common.Binding{
 				DeviceGUID:  "keyboard",
 				DeviceName:  "Keyboard",
 				InputType:   common.Button, // Treat keyboard keys as buttons
-				InputID:     deviceRef,
-				Action:      actionName,
-				Description: description,
-			}
-			profile.Bindings = append(profile.Bindings, binding)
+				InputID:     line.deviceRef,
+				Action:      line.action,
+				Description: line.description,
+			})
 			continue
 		}
 
 		// Skip mouse bindings (not used for TARGET matching)
-		if strings.HasPrefix(deviceRef, "mouse_") {
+		if strings.HasPrefix(line.deviceRef, "mouse_") {
 			continue
 		}
 
-		// Handle multiple device references separated by /
-		deviceRefs := strings.Split(deviceRef, "/")
-
-		for _, ref := range deviceRefs {
-			ref = strings.TrimSpace(ref)
-
-			// Try to parse as button
-			if matches := buttonPattern.FindStringSubmatch(ref); matches != nil {
-				joyNum := matches[1]
-				btnNum := matches[2]
-
-				// Find device GUID for this joy number
-				deviceGUID := findDeviceGUIDByConfigID(devices, joyNum)
-				if deviceGUID == "" {
-					fmt.Printf("  [IL2] Warning: No device found for joy%s (button binding)\n", joyNum)
-					continue
-				}
-
-				compositeKey := fmt.Sprintf("%s:%s", joyNum, deviceGUID)
-				device := devices[compositeKey]
-				if device == nil {
-					fmt.Printf("  [IL2] Warning: Device is nil for key '%s'\n", compositeKey)
-					continue
-				}
-
-				// IL-2 button numbers are 0-based, we use 1-based
-				btnNumInt := 0
-				_, _ = fmt.Sscanf(btnNum, "%d", &btnNumInt)
-				btnNumInt++ // Convert to 1-based
-
-				binding := common.Binding{
-					DeviceGUID:  deviceGUID,
-					DeviceName:  device.Name,
-					InputType:   common.Button,
-					InputID:     fmt.Sprintf("%d", btnNumInt),
-					Action:      actionName,
-					Description: description,
-				}
-
-				profile.Bindings = append(profile.Bindings, binding)
-				continue
-			}
-
-			// Try to parse as axis
-			if matches := axisPattern.FindStringSubmatch(ref); matches != nil {
-				joyNum := matches[1]
-				axisLetter := strings.ToLower(matches[2])
-
-				// Find device GUID for this joy number
-				deviceGUID := findDeviceGUIDByConfigID(devices, joyNum)
-				if deviceGUID == "" {
-					continue
-				}
-
-				compositeKey := fmt.Sprintf("%s:%s", joyNum, deviceGUID)
-				device := devices[compositeKey]
-				if device == nil {
-					continue
-				}
-
-				axisID := AxisLetterToAxisID(axisLetter)
-
-				binding := common.Binding{
-					DeviceGUID:  deviceGUID,
-					DeviceName:  device.Name,
-					InputType:   common.Axis,
-					InputID:     axisID,
-					Action:      actionName,
-					Description: description,
-				}
-
-				profile.Bindings = append(profile.Bindings, binding)
-				continue
-			}
-
-			// Try to parse as POV/HAT
-			if matches := povPattern.FindStringSubmatch(ref); matches != nil {
-				joyNum := matches[1]
-				povNum := matches[2]
-				direction := matches[3]
-
-				// Find device GUID for this joy number
-				deviceGUID := findDeviceGUIDByConfigID(devices, joyNum)
-				if deviceGUID == "" {
-					continue
-				}
-
-				compositeKey := fmt.Sprintf("%s:%s", joyNum, deviceGUID)
-				device := devices[compositeKey]
-				if device == nil {
-					continue
-				}
-
-				// Convert POV number (0-based) to 1-based
-				povNumInt := 0
-				_, _ = fmt.Sscanf(povNum, "%d", &povNumInt)
-				povNumInt++
-
-				hatDirection := fmt.Sprintf("%d_%s", povNumInt, PovAngleToDirection(direction))
-
-				binding := common.Binding{
-					DeviceGUID:  deviceGUID,
-					DeviceName:  device.Name,
-					InputType:   common.Hat,
-					InputID:     hatDirection,
-					Action:      actionName,
-					Description: description,
-				}
-
-				profile.Bindings = append(profile.Bindings, binding)
-				continue
+		// One action can be bound on several devices, separated by /
+		for _, ref := range strings.Split(line.deviceRef, "/") {
+			if binding := bindingForRef(strings.TrimSpace(ref), line, devices); binding != nil {
+				profile.Bindings = append(profile.Bindings, *binding)
 			}
 		}
 	}

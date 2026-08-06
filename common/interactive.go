@@ -1,9 +1,10 @@
 package common
 
 import (
+	"cmp"
 	"fmt"
 	"os"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -21,8 +22,8 @@ func SelectTemplateInteractive(templatesDir string, deviceName string) (string, 
 	}
 
 	// Sort templates by name
-	sort.Slice(templates, func(i, j int) bool {
-		return templates[i].Name < templates[j].Name
+	slices.SortFunc(templates, func(a, b *Template) int {
+		return cmp.Compare(a.Name, b.Name)
 	})
 
 	// Display options
@@ -79,12 +80,14 @@ func GetAllDevicesFromProfiles(profiles *ProfileCollection) []*Device {
 	}
 
 	// Sort by name for consistent display, with virtual devices at the end
-	sort.Slice(devices, func(i, j int) bool {
-		// Virtual devices go to the end
-		if devices[i].IsVirtual != devices[j].IsVirtual {
-			return !devices[i].IsVirtual // Non-virtual first
+	slices.SortFunc(devices, func(a, b *Device) int {
+		if a.IsVirtual != b.IsVirtual {
+			if a.IsVirtual {
+				return 1 // Non-virtual first
+			}
+			return -1
 		}
-		return devices[i].Name < devices[j].Name
+		return cmp.Compare(a.Name, b.Name)
 	})
 
 	return devices
@@ -111,7 +114,7 @@ func AskTemplatesDirectory(config *Config) string {
 
 // getTemplatesDefaultDirectory gets the default templates directory
 func getTemplatesDefaultDirectory(config *Config) string {
-	defaultDir := config.GetCommonTemplatesDirectory()
+	defaultDir := config.TemplatesDirectory
 	if defaultDir == "" {
 		defaultDir = "./templates"
 	}
@@ -150,7 +153,7 @@ func validateTemplatesDirectory(templatesDir string) error {
 
 	hasSVG, err := containsSVGFiles(templatesDir)
 	if err != nil {
-		return fmt.Errorf("⚠ Error checking directory: %v", err)
+		return fmt.Errorf("⚠ Error checking directory: %w", err)
 	}
 
 	if !hasSVG {
@@ -338,106 +341,112 @@ func AskTargetProfilePath(config *Config, devices []*Device) (string, []TargetDe
 	if ExtFuncs == nil {
 		return "", nil
 	}
-	// Get common default value from existing configurations
-	defaultPath := config.GetCommonTargetProfilePath()
 
 	fmt.Printf("\n=== Thrustmaster TARGET Configuration (Optional) ===\n")
 	fmt.Println("TARGET allows Thrustmaster device remapping and macro integration.")
 
-	// Ask if user wants to configure TARGET
-	fmt.Print("\nDo you want to configure a TARGET profile? (Y/n): ")
-	wantTarget, err := ReadLine()
-	if err == nil {
-		wantTarget = strings.ToLower(wantTarget)
-		if wantTarget == "n" || wantTarget == "no" {
-			fmt.Println("⊘ TARGET configuration skipped")
-			return "", nil
-		}
+	if !askYesNoDefaultYes("\nDo you want to configure a TARGET profile?") {
+		fmt.Println("⊘ TARGET configuration skipped")
+		return "", nil
 	}
 
-	var profilePath string
+	profilePath := promptTargetProfilePath(config.GetCommonTargetProfilePath())
+	if profilePath == "" {
+		return "", nil
+	}
 
+	return profilePath, mapTargetDevices(profilePath, devices)
+}
+
+// askYesNoDefaultYes prompts for confirmation, treating an empty answer and any
+// read error as "yes".
+func askYesNoDefaultYes(question string) bool {
+	fmt.Printf("%s (Y/n): ", question)
+	answer, err := ReadLine()
+	if err != nil {
+		return true
+	}
+	answer = strings.ToLower(answer)
+	return answer != "n" && answer != "no"
+}
+
+// promptTargetProfilePath asks for an existing .fcf profile, re-prompting until a
+// valid one is given. Returns "" when the user gives up or skips.
+func promptTargetProfilePath(defaultPath string) string {
 	for {
+		fmt.Printf("\nEnter the full path to your TARGET profile file (.fcf)\n")
 		if defaultPath != "" {
-			fmt.Printf("\nEnter the full path to your TARGET profile file (.fcf)\n")
 			fmt.Printf("(leave empty to use: %s): ", defaultPath)
 		} else {
-			fmt.Printf("\nEnter the full path to your TARGET profile file (.fcf)\n")
 			fmt.Printf("(or leave empty to skip): ")
 		}
 
-		profilePath, err = ReadLine()
+		profilePath, err := ReadLine()
 		if err != nil {
 			fmt.Println("⚠ Error reading input")
 			continue
 		}
 
-		// Use default if empty and default exists
 		if profilePath == "" && defaultPath != "" {
 			profilePath = defaultPath
 			fmt.Printf("Using default: %s\n", profilePath)
 		}
 
-		// Allow skipping if empty and no default
+		// Empty with no default means "skip"
 		if profilePath == "" {
 			fmt.Println("⊘ TARGET configuration skipped")
-			return "", nil
+			return ""
 		}
 
-		// Check that the file exists
-		if _, statErr := os.Stat(profilePath); os.IsNotExist(statErr) {
-			fmt.Printf("❌ File does not exist: %s\n", profilePath)
-			fmt.Print("Try again? (Y/n): ")
-			retry, _ := ReadLine()
-			retry = strings.ToLower(retry)
-			if retry == "n" || retry == "no" {
-				fmt.Println("⊘ TARGET configuration skipped")
-				return "", nil
-			}
-			continue
+		problem := ""
+		switch {
+		case !fileExists(profilePath):
+			problem = fmt.Sprintf("❌ File does not exist: %s", profilePath)
+		case !strings.HasSuffix(strings.ToLower(profilePath), ".fcf"):
+			problem = fmt.Sprintf("❌ TARGET profile must be an FCF file (.fcf): %s", profilePath)
 		}
 
-		// Check that it's an FCF file
-		if !strings.HasSuffix(strings.ToLower(profilePath), ".fcf") {
-			fmt.Printf("❌ TARGET profile must be an FCF file (.fcf): %s\n", profilePath)
-			fmt.Print("Try again? (Y/n): ")
-			retry, _ := ReadLine()
-			retry = strings.ToLower(retry)
-			if retry == "n" || retry == "no" {
-				fmt.Println("⊘ TARGET configuration skipped")
-				return "", nil
-			}
-			continue
+		if problem == "" {
+			return profilePath
 		}
 
-		break
+		fmt.Println(problem)
+		if !askYesNoDefaultYes("Try again?") {
+			fmt.Println("⊘ TARGET configuration skipped")
+			return ""
+		}
 	}
+}
 
-	// Get the TARGET device numbers from the profile
+// fileExists reports whether path names an existing file.
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+// mapTargetDevices associates each TARGET device number in the profile with one of
+// the user's physical devices, auto-detecting what it can and asking for the rest.
+func mapTargetDevices(profilePath string, devices []*Device) []TargetDeviceMapping {
 	targetDeviceNumbers, err := ExtFuncs.GetTargetDeviceNumbers(profilePath)
 	if err != nil {
 		fmt.Printf("⚠ Error reading TARGET profile: %v\n", err)
-		return profilePath, nil
+		return nil
 	}
-
 	if len(targetDeviceNumbers) == 0 {
 		fmt.Println("⚠ No devices found in TARGET profile")
-		return profilePath, nil
+		return nil
 	}
 
-	// Filter out virtual devices - only show physical devices for TARGET mapping
+	// Only physical devices can back a TARGET device
 	physicalDevices := FilterPhysicalDevices(devices)
-
 	if len(physicalDevices) == 0 {
 		fmt.Println("⚠ No physical devices found for TARGET mapping")
-		return profilePath, nil
+		return nil
 	}
 
-	// Try auto-detection first
 	fmt.Println("\n=== TARGET Device Mapping ===")
 	autoMappings := ExtFuncs.AutoMatchTargetDevices(targetDeviceNumbers, physicalDevices)
 
-	// Show auto-detected mappings
 	if len(autoMappings) > 0 {
 		fmt.Println("Auto-detected mappings:")
 		for _, m := range autoMappings {
@@ -445,25 +454,17 @@ func AskTargetProfilePath(config *Config, devices []*Device) (string, []TargetDe
 		}
 	}
 
-	// Check for unmatched devices
 	unmatchedDevices := ExtFuncs.GetUnmatchedTargetDevices(targetDeviceNumbers, autoMappings)
 
-	deviceMappings := make([]TargetDeviceMapping, 0)
+	deviceMappings := make([]TargetDeviceMapping, 0, len(targetDeviceNumbers))
 	deviceMappings = append(deviceMappings, autoMappings...)
 
-	// If all devices were auto-matched, ask for confirmation
-	if len(unmatchedDevices) == 0 {
-		fmt.Print("\nUse these mappings? (Y/n): ")
-		confirm, _ := ReadLine()
-		confirm = strings.ToLower(confirm)
-		if confirm == "n" || confirm == "no" {
-			// User wants to configure manually - clear auto mappings
-			deviceMappings = make([]TargetDeviceMapping, 0)
-			unmatchedDevices = targetDeviceNumbers
-		}
+	// Everything matched automatically: confirm, or fall back to full manual mapping
+	if len(unmatchedDevices) == 0 && !askYesNoDefaultYes("\nUse these mappings?") {
+		deviceMappings = deviceMappings[:0]
+		unmatchedDevices = targetDeviceNumbers
 	}
 
-	// Ask user to map remaining unmatched devices
 	if len(unmatchedDevices) > 0 {
 		if len(autoMappings) > 0 {
 			fmt.Println("\nManual mapping required for remaining devices:")
@@ -472,70 +473,69 @@ func AskTargetProfilePath(config *Config, devices []*Device) (string, []TargetDe
 		}
 		fmt.Println()
 
-		// Build list of available devices (exclude already matched ones)
-		usedGUIDs := make(map[string]bool)
-		for _, m := range deviceMappings {
-			usedGUIDs[m.DeviceGUID] = true
-		}
-
-		availableDevices := make([]*Device, 0)
-		for _, device := range physicalDevices {
-			if !usedGUIDs[device.GUID] {
-				availableDevices = append(availableDevices, device)
-			}
-		}
-
-		for _, targetNum := range unmatchedDevices {
-			targetName := ExtFuncs.TargetDeviceNumberToName(targetNum)
-			fmt.Printf("TARGET Device %d (%s):\n", targetNum, targetName)
-
-			// Display available physical devices
-			for i, device := range availableDevices {
-				fmt.Printf("  %d. %s\n", i+1, device.Name)
-			}
-			fmt.Printf("  %d. Skip this device\n", len(availableDevices)+1)
-
-			fmt.Print("Choose (number): ")
-			input, err := ReadLine()
-			if err != nil {
-				continue
-			}
-
-			choice, err := strconv.Atoi(input)
-			if err != nil || choice < 1 || choice > len(availableDevices)+1 {
-				fmt.Println("⚠ Invalid choice, skipping this device")
-				continue
-			}
-
-			// Skip option
-			if choice == len(availableDevices)+1 {
-				fmt.Printf("⊘ Skipping TARGET device %d\n", targetNum)
-				continue
-			}
-
-			selectedDevice := availableDevices[choice-1]
-			mapping := TargetDeviceMapping{
-				DeviceNumber: targetNum,
-				DeviceGUID:   selectedDevice.GUID,
-				DeviceName:   selectedDevice.Name,
-			}
-			deviceMappings = append(deviceMappings, mapping)
-			fmt.Printf("✓ TARGET %d → %s\n", targetNum, selectedDevice.Name)
-
-			// Remove from available devices
-			newAvailable := make([]*Device, 0)
-			for _, d := range availableDevices {
-				if d.GUID != selectedDevice.GUID {
-					newAvailable = append(newAvailable, d)
-				}
-			}
-			availableDevices = newAvailable
-		}
+		deviceMappings = askManualTargetMappings(unmatchedDevices, physicalDevices, deviceMappings)
 	}
 
 	if len(deviceMappings) == 0 {
 		fmt.Println("⚠ No TARGET device mappings configured")
 	}
 
-	return profilePath, deviceMappings
+	return deviceMappings
+}
+
+// askManualTargetMappings walks the user through the TARGET devices that could not
+// be auto-detected, offering the physical devices not yet spoken for.
+func askManualTargetMappings(unmatchedDevices []int, physicalDevices []*Device, deviceMappings []TargetDeviceMapping) []TargetDeviceMapping {
+	// Only offer devices that are not already mapped
+	usedGUIDs := make(map[string]bool, len(deviceMappings))
+	for _, m := range deviceMappings {
+		usedGUIDs[m.DeviceGUID] = true
+	}
+
+	availableDevices := make([]*Device, 0, len(physicalDevices))
+	for _, device := range physicalDevices {
+		if !usedGUIDs[device.GUID] {
+			availableDevices = append(availableDevices, device)
+		}
+	}
+
+	for _, targetNum := range unmatchedDevices {
+		fmt.Printf("TARGET Device %d (%s):\n", targetNum, ExtFuncs.TargetDeviceNumberToName(targetNum))
+
+		for i, device := range availableDevices {
+			fmt.Printf("  %d. %s\n", i+1, device.Name)
+		}
+		skipChoice := len(availableDevices) + 1
+		fmt.Printf("  %d. Skip this device\n", skipChoice)
+
+		fmt.Print("Choose (number): ")
+		input, err := ReadLine()
+		if err != nil {
+			continue
+		}
+
+		choice, err := strconv.Atoi(input)
+		if err != nil || choice < 1 || choice > skipChoice {
+			fmt.Println("⚠ Invalid choice, skipping this device")
+			continue
+		}
+
+		if choice == skipChoice {
+			fmt.Printf("⊘ Skipping TARGET device %d\n", targetNum)
+			continue
+		}
+
+		selectedDevice := availableDevices[choice-1]
+		deviceMappings = append(deviceMappings, TargetDeviceMapping{
+			DeviceNumber: targetNum,
+			DeviceGUID:   selectedDevice.GUID,
+			DeviceName:   selectedDevice.Name,
+		})
+		fmt.Printf("✓ TARGET %d → %s\n", targetNum, selectedDevice.Name)
+
+		// A physical device backs at most one TARGET device
+		availableDevices = slices.Delete(availableDevices, choice-1, choice)
+	}
+
+	return deviceMappings
 }

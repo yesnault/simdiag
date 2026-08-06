@@ -31,13 +31,12 @@ func init() {
 		AutoMatchTargetDevices:    target.AutoMatchTargetDevices,
 		TargetDeviceNumberToName:  target.DeviceNumberToName,
 		GetUnmatchedTargetDevices: target.GetUnmatchedTargetDevices,
-		LoadGremlinsBindingsForDevice: func(guid string, config *common.Config) interface{} {
-			return gremlins.LoadBindingsForDevice(guid, config)
+		HasGremlinsBindingsForDevice: func(guid string, config *common.Config) bool {
+			return len(gremlins.LoadBindingsForDevice(guid, config)) > 0
 		},
-		LoadOpenKneeboardBindingsForDevice: func(guid string, config *common.Config) interface{} {
-			return openkneeboard.LoadBindingsForDevice(guid, config)
+		HasOpenKneeboardBindingsForDevice: func(guid string, config *common.Config) bool {
+			return len(openkneeboard.LoadBindingsForDevice(guid, config)) > 0
 		},
-		ParseGremlinsProfile: func(path string) (interface{}, error) { return gremlins.ParseProfile(path) },
 	}
 }
 
@@ -139,7 +138,7 @@ func loadConfig(batchMode bool) (*common.Config, error) {
 	if err != nil || config == nil {
 		if batchMode {
 			if err != nil {
-				return nil, fmt.Errorf("unable to load configuration file: %s\nDetails: %v\nPlease run in interactive mode first to create a valid configuration", common.GetConfigFileName(), err)
+				return nil, fmt.Errorf("unable to load configuration file: %s\nDetails: %w\nPlease run in interactive mode first to create a valid configuration", common.GetConfigFileName(), err)
 			}
 			return nil, fmt.Errorf("unable to load configuration file: %s\nPlease run in interactive mode first to create a valid configuration", common.GetConfigFileName())
 		}
@@ -192,7 +191,7 @@ func runCSVMode(csvPath, configFile string, noSVG bool) error {
 	// Load config
 	config, err := common.LoadConfig()
 	if err != nil {
-		return fmt.Errorf("unable to load configuration file: %s\nDetails: %v", configFile, err)
+		return fmt.Errorf("unable to load configuration file: %s\nDetails: %w", configFile, err)
 	}
 	if config == nil {
 		return fmt.Errorf("unable to load configuration file: %s", configFile)
@@ -343,7 +342,7 @@ func parseSimulator(config *common.Config, simType common.SimulationType, config
 	// Parse using the interface
 	profiles, err := parser.Parse(configPath)
 	if err != nil {
-		return nil, fmt.Errorf("error during parsing: %v", err)
+		return nil, fmt.Errorf("error during parsing: %w", err)
 	}
 
 	return profiles, nil

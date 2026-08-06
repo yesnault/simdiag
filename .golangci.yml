@@ -33,7 +33,7 @@ linters-settings:
     check-blank: false  # Allow intentional error ignoring with _
 
   gocyclo:
-    min-complexity: 60
+    min-complexity: 20
 
   govet:
     enable:
@@ -65,9 +65,25 @@ linters-settings:
       - name: confusing-naming
       - name: modifies-parameter
       - name: deep-exit
+      # [max statements, max lines]. The line budget is the looser of the two so
+      # that flat lookup tables (scan-code and key-name maps) stay in one piece.
       - name: function-length
-        arguments: [350, 350]
+        arguments: [60, 150]
 
       # --- Dead / useless code ---
       - name: unused-parameter
       - name: blank-imports
+
+issues:
+  exclude-rules:
+    # Table-driven tests are long and branchy by construction; the size limits
+    # exist to keep production logic decomposable, not to cap test tables.
+    - path: _test\.go
+      linters:
+        - gocyclo
+        - dupl
+      text: ""
+    - path: _test\.go
+      linters:
+        - revive
+      text: "function-length"

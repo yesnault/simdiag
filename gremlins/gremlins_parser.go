@@ -177,183 +177,198 @@ func ParseProfile(profilePath string) ([]*Binding, error) {
 		deviceGUID := common.NormalizeGUID(device.DeviceGUID)
 
 		for _, mode := range device.Modes {
-			// Parse buttons - iterate over all containers (a button can have multiple containers
-			// for different activation conditions like pressed/released)
-			for _, btn := range mode.Buttons {
-				if len(btn.Containers) == 0 {
-					continue
-				}
-
-				// Process each container separately (each may produce a binding)
-				for _, container := range btn.Containers {
-					if container.ActionSet == nil {
-						continue
-					}
-
-					binding := &Binding{
-						DeviceGUID:  deviceGUID,
-						DeviceName:  device.Name,
-						InputType:   common.Button,
-						InputID:     btn.ID,
-						Description: btn.Description,
-						Mode:        mode.Name,
-					}
-
-					// Check for temporary mode switch first
-					if tempModeSwitch := container.ActionSet.TemporaryModeSwitch; tempModeSwitch != nil {
-						binding.IsModeSwitcher = true
-						binding.SwitchesTo = tempModeSwitch.Name
-						bindings = append(bindings, binding)
-						continue
-					}
-
-					// Check for remap to vJoy
-					if remap := container.ActionSet.Remap; remap != nil {
-						binding.VJoyDevice = remap.VJoy
-						binding.VJoyButton = remap.Button
-						binding.VJoyAxis = remap.Axis
-						bindings = append(bindings, binding)
-						continue
-					}
-
-					// Check for keyboard mapping
-					if mapKb := container.ActionSet.MapToKeyboard; mapKb != nil && len(mapKb.Keys) > 0 {
-						key := mapKb.Keys[0]
-						binding.KeyboardKey = scanCodeToKeyName(key.ScanCode, key.Extended)
-						bindings = append(bindings, binding)
-						continue
-					}
-
-					// Check for mouse mapping
-					if mapMouse := container.ActionSet.MapToMouse; mapMouse != nil {
-						binding.MouseButton = fmt.Sprintf("Mouse %d", mapMouse.ButtonID)
-						bindings = append(bindings, binding)
-						continue
-					}
-
-					// Check for macro with mouse, keyboard, or vJoy
-					if macro := container.ActionSet.Macro; macro != nil {
-						if len(macro.Actions.Mouse) > 0 {
-							mouseBtn := macro.Actions.Mouse[0].Button
-							binding.MouseButton = fmt.Sprintf("Mouse %s", mouseBtn)
-							bindings = append(bindings, binding)
-							continue
-						}
-						if len(macro.Actions.Key) > 0 {
-							// Build key combination from all pressed keys in the macro
-							keys := []string{}
-							for _, key := range macro.Actions.Key {
-								// Only include key presses, not releases
-								if key.Press {
-									keyName := scanCodeToKeyName(key.ScanCode, key.Extended)
-									keys = append(keys, keyName)
-								}
-							}
-							if len(keys) > 0 {
-								binding.KeyboardKey = strings.Join(keys, " + ")
-								bindings = append(bindings, binding)
-								continue
-							}
-						}
-						// Check for macro with vJoy actions (e.g., press vJoy button)
-						if len(macro.Actions.VJoy) > 0 {
-							// Find first vJoy button press action
-							for _, vjoyAction := range macro.Actions.VJoy {
-								if vjoyAction.InputType == "button" && vjoyAction.Value == "True" {
-									binding.VJoyDevice = vjoyAction.VJoyID
-									binding.VJoyButton = vjoyAction.InputID
-									bindings = append(bindings, binding)
-									break
-								}
-							}
-							continue
-						}
-					}
-				}
-			}
-
-			// Parse axes
-			for _, axis := range mode.Axes {
-				if axis.Container == nil || axis.Container.ActionSet == nil {
-					continue
-				}
-
-				binding := &Binding{
-					DeviceGUID:  deviceGUID,
-					DeviceName:  device.Name,
-					InputType:   common.Axis,
-					InputID:     convertAxisIDToName(axis.ID),
-					Description: axis.Description,
-					Mode:        mode.Name,
-				}
-
-				// Check for remap to vJoy
-				if remap := axis.Container.ActionSet.Remap; remap != nil {
-					binding.VJoyDevice = remap.VJoy
-					binding.VJoyAxis = remap.Axis
-					bindings = append(bindings, binding)
-					continue
-				}
-
-				// Check for mouse mapping (common for axes)
-				if mapMouse := axis.Container.ActionSet.MapToMouse; mapMouse != nil {
-					direction := "Movement"
-					if mapMouse.Direction == 0 {
-						direction = "Movement X"
-					} else if mapMouse.Direction == 90 {
-						direction = "Movement Y"
-					}
-					binding.MouseButton = fmt.Sprintf("Mouse %s", direction)
-					bindings = append(bindings, binding)
-				}
-			}
-
-			// Parse hats - create one binding per direction (U, D, L, R)
-			// This matches how IL-2 and SVG templates handle hats
-			hatDirections := []string{"U", "D", "L", "R"}
-			for _, hat := range mode.Hats {
-				if hat.Container == nil || hat.Container.ActionSet == nil {
-					continue
-				}
-
-				// Check for remap to vJoy - create 4 bindings (one per direction)
-				if remap := hat.Container.ActionSet.Remap; remap != nil {
-					for _, dir := range hatDirections {
-						binding := &Binding{
-							DeviceGUID:  deviceGUID,
-							DeviceName:  device.Name,
-							InputType:   common.Hat,
-							InputID:     fmt.Sprintf("%s_%s", hat.ID, dir), // e.g., "1_U"
-							Description: hat.Description,
-							Mode:        mode.Name,
-							VJoyDevice:  remap.VJoy,
-							VJoyHat:     remap.Hat,
-						}
-						bindings = append(bindings, binding)
-					}
-					continue
-				}
-
-				// Check for keyboard mapping (single binding)
-				if mapKb := hat.Container.ActionSet.MapToKeyboard; mapKb != nil && len(mapKb.Keys) > 0 {
-					key := mapKb.Keys[0]
-					binding := &Binding{
-						DeviceGUID:  deviceGUID,
-						DeviceName:  device.Name,
-						InputType:   common.Hat,
-						InputID:     hat.ID,
-						Description: hat.Description,
-						Mode:        mode.Name,
-						KeyboardKey: scanCodeToKeyName(key.ScanCode, key.Extended),
-					}
-					bindings = append(bindings, binding)
-					continue
-				}
-			}
+			bindings = append(bindings, parseModeButtons(mode, device, deviceGUID)...)
+			bindings = append(bindings, parseModeAxes(mode, device, deviceGUID)...)
+			bindings = append(bindings, parseModeHats(mode, device, deviceGUID)...)
 		}
 	}
 
 	return bindings, nil
+}
+
+// parseModeButtons converts the button entries of one mode into bindings. A button
+// can carry several containers (pressed, released, ...), each producing a binding.
+func parseModeButtons(mode Mode, device Device, deviceGUID string) []*Binding {
+	var bindings []*Binding
+
+	for _, btn := range mode.Buttons {
+		for _, container := range btn.Containers {
+			if container.ActionSet == nil {
+				continue
+			}
+
+			binding := &Binding{
+				DeviceGUID:  deviceGUID,
+				DeviceName:  device.Name,
+				InputType:   common.Button,
+				InputID:     btn.ID,
+				Description: btn.Description,
+				Mode:        mode.Name,
+			}
+
+			if applyButtonAction(binding, container.ActionSet) {
+				bindings = append(bindings, binding)
+			}
+		}
+	}
+
+	return bindings
+}
+
+// applyButtonAction fills in what a button container does. It reports false when
+// the container holds no action this tool understands.
+func applyButtonAction(binding *Binding, actionSet *ActionSet) bool {
+	// Temporary mode switch takes priority over any remap
+	if tempModeSwitch := actionSet.TemporaryModeSwitch; tempModeSwitch != nil {
+		binding.IsModeSwitcher = true
+		binding.SwitchesTo = tempModeSwitch.Name
+		return true
+	}
+
+	if remap := actionSet.Remap; remap != nil {
+		binding.VJoyDevice = remap.VJoy
+		binding.VJoyButton = remap.Button
+		binding.VJoyAxis = remap.Axis
+		return true
+	}
+
+	if mapKb := actionSet.MapToKeyboard; mapKb != nil && len(mapKb.Keys) > 0 {
+		key := mapKb.Keys[0]
+		binding.KeyboardKey = scanCodeToKeyName(key.ScanCode, key.Extended)
+		return true
+	}
+
+	if mapMouse := actionSet.MapToMouse; mapMouse != nil {
+		binding.MouseButton = fmt.Sprintf("Mouse %d", mapMouse.ButtonID)
+		return true
+	}
+
+	if macro := actionSet.Macro; macro != nil {
+		return applyMacroAction(binding, macro)
+	}
+
+	return false
+}
+
+// applyMacroAction fills in a binding from the first usable action of a macro:
+// a mouse button, a key combination, or a vJoy button press.
+func applyMacroAction(binding *Binding, macro *Macro) bool {
+	if len(macro.Actions.Mouse) > 0 {
+		binding.MouseButton = fmt.Sprintf("Mouse %s", macro.Actions.Mouse[0].Button)
+		return true
+	}
+
+	if len(macro.Actions.Key) > 0 {
+		// Build the key combination from the presses only, ignoring releases
+		var keys []string
+		for _, key := range macro.Actions.Key {
+			if key.Press {
+				keys = append(keys, scanCodeToKeyName(key.ScanCode, key.Extended))
+			}
+		}
+		if len(keys) > 0 {
+			binding.KeyboardKey = strings.Join(keys, " + ")
+			return true
+		}
+	}
+
+	// Macros can also press a vJoy button directly
+	for _, vjoyAction := range macro.Actions.VJoy {
+		if vjoyAction.InputType == "button" && vjoyAction.Value == "True" {
+			binding.VJoyDevice = vjoyAction.VJoyID
+			binding.VJoyButton = vjoyAction.InputID
+			return true
+		}
+	}
+
+	return false
+}
+
+// parseModeAxes converts the axis entries of one mode into bindings.
+func parseModeAxes(mode Mode, device Device, deviceGUID string) []*Binding {
+	var bindings []*Binding
+
+	for _, axis := range mode.Axes {
+		if axis.Container == nil || axis.Container.ActionSet == nil {
+			continue
+		}
+
+		binding := &Binding{
+			DeviceGUID:  deviceGUID,
+			DeviceName:  device.Name,
+			InputType:   common.Axis,
+			InputID:     convertAxisIDToName(axis.ID),
+			Description: axis.Description,
+			Mode:        mode.Name,
+		}
+
+		switch {
+		case axis.Container.ActionSet.Remap != nil:
+			remap := axis.Container.ActionSet.Remap
+			binding.VJoyDevice = remap.VJoy
+			binding.VJoyAxis = remap.Axis
+			bindings = append(bindings, binding)
+
+		case axis.Container.ActionSet.MapToMouse != nil:
+			// Mouse movement is a common axis target
+			direction := "Movement"
+			switch axis.Container.ActionSet.MapToMouse.Direction {
+			case 0:
+				direction = "Movement X"
+			case 90:
+				direction = "Movement Y"
+			}
+			binding.MouseButton = "Mouse " + direction
+			bindings = append(bindings, binding)
+		}
+	}
+
+	return bindings
+}
+
+// parseModeHats converts the hat entries of one mode into bindings. A hat remapped
+// onto vJoy yields one binding per direction, matching how IL-2 and the SVG
+// templates address hats.
+func parseModeHats(mode Mode, device Device, deviceGUID string) []*Binding {
+	hatDirections := []string{"U", "D", "L", "R"}
+
+	var bindings []*Binding
+
+	for _, hat := range mode.Hats {
+		if hat.Container == nil || hat.Container.ActionSet == nil {
+			continue
+		}
+
+		newHatBinding := func(inputID string) *Binding {
+			return &Binding{
+				DeviceGUID:  deviceGUID,
+				DeviceName:  device.Name,
+				InputType:   common.Hat,
+				InputID:     inputID,
+				Description: hat.Description,
+				Mode:        mode.Name,
+			}
+		}
+
+		if remap := hat.Container.ActionSet.Remap; remap != nil {
+			for _, dir := range hatDirections {
+				binding := newHatBinding(hat.ID + "_" + dir) // e.g. "1_U"
+				binding.VJoyDevice = remap.VJoy
+				binding.VJoyHat = remap.Hat
+				bindings = append(bindings, binding)
+			}
+			continue
+		}
+
+		if mapKb := hat.Container.ActionSet.MapToKeyboard; mapKb != nil && len(mapKb.Keys) > 0 {
+			key := mapKb.Keys[0]
+			binding := newHatBinding(hat.ID)
+			binding.KeyboardKey = scanCodeToKeyName(key.ScanCode, key.Extended)
+			bindings = append(bindings, binding)
+		}
+	}
+
+	return bindings
 }
 
 // scanCodeToKeyName converts Windows scan code to readable key name

@@ -1,9 +1,11 @@
 package gremlins
 
 import (
+	"cmp"
 	"fmt"
-	"simdiag/common"
 	"strings"
+
+	"simdiag/common"
 )
 
 // buildVJoyGUIDMap builds a map of vJoy device numbers to GUID prefixes
@@ -134,138 +136,150 @@ func addBindings(exportDevice *common.ExportDevice, fullProfile *common.Profile,
 		}
 
 		binding := common.Binding{
-			DeviceGUID:  gb.DeviceGUID,
-			DeviceName:  gb.DeviceName,
-			InputType:   gb.InputType,
-			InputID:     gb.InputID,
-			Action:      "Gremlins",
-			Description: "",
+			DeviceGUID: gb.DeviceGUID,
+			DeviceName: gb.DeviceName,
+			InputType:  gb.InputType,
+			InputID:    gb.InputID,
+			Action:     "Gremlins",
 		}
 
-		// If binding is in a non-Base mode, create a modifier
-		if gb.Mode != "" && gb.Mode != "Base" {
-			if switcher, found := modeSwitchers[gb.Mode]; found {
-				// Create modifier key in format similar to DCS: GREMLINS_MODE_Shift
-				modifierKey := fmt.Sprintf("GREMLINS_MODE_%s", gb.Mode)
-				binding.Modifiers = []common.Modifier{
-					{
-						Keys:     []string{modifierKey},
-						Action:   fmt.Sprintf("Gremlins Mode: %s", gb.Mode),
-						IsSwitch: true, // Modes act like switches in Gremlins
-					},
-				}
+		applyModeModifier(&binding, gb, modeSwitchers, exportDevice.Profile)
+		applyVirtualTarget(&binding, gb, vJoyGUIDs)
 
-				// Store mode switcher info in ModifierDeviceMap if not already present
-				if exportDevice.Profile.ModifierDeviceMap == nil {
-					exportDevice.Profile.ModifierDeviceMap = make(map[string]common.ModifierInfo)
-				}
-				if _, exists := exportDevice.Profile.ModifierDeviceMap[modifierKey]; !exists {
-					exportDevice.Profile.ModifierDeviceMap[modifierKey] = common.ModifierInfo{
-						DeviceGUID: switcher.DeviceGUID,
-						DeviceName: switcher.DeviceName,
-						Key:        fmt.Sprintf("BTN%s", switcher.InputID),
-						IsSwitch:   true,
-					}
-				}
-			}
-		}
-
-		// Set virtual device information for CSV export
-		switch {
-		case gb.VJoyDevice > 0:
-			// Use GUID prefix for consistent naming with IL-2 bindings
-			if vjoyGUID, ok := vJoyGUIDs[gb.VJoyDevice]; ok && len(vjoyGUID) >= 8 {
-				// Extract first 8 chars of GUID
-				guidPrefix := strings.ToLower(vjoyGUID[:8])
-				binding.VirtualDevice = fmt.Sprintf("vJoy Device %s", guidPrefix)
-			} else {
-				binding.VirtualDevice = fmt.Sprintf("vJoy Device #%d", gb.VJoyDevice)
-			}
-			switch {
-			case gb.VJoyButton > 0:
-				binding.VirtualInput = fmt.Sprintf("BTN%d", gb.VJoyButton)
-			case gb.VJoyAxis > 0:
-				binding.VirtualInput = fmt.Sprintf("Axis%d", gb.VJoyAxis)
-			case gb.VJoyHat > 0:
-				// Include direction in VirtualInput (e.g., "POV_1_U")
-				// gb.InputID is in format "hatNum_direction" (e.g., "1_U")
-				binding.VirtualInput = fmt.Sprintf("POV_%s", gb.InputID)
-			}
-		case gb.KeyboardKey != "":
-			binding.VirtualDevice = "Keyboard"
-			binding.VirtualInput = gb.KeyboardKey
-		case gb.MouseButton != "":
-			binding.VirtualDevice = "Mouse"
-			binding.VirtualInput = gb.MouseButton
-		}
-
-		// Build description based on binding type
-		var actionDesc string
-
-		// vJoy remap - find the actual action in the simulator
-		switch {
-		case gb.VJoyDevice > 0:
-			switch {
-			case gb.VJoyButton > 0:
-				// Search in both the full profile AND the export device profile
-				actionDesc = findVJoyActionInSimulator(gb.VJoyDevice, gb.VJoyButton, fullProfile.Bindings, vJoyGUIDs)
-				if actionDesc == "" {
-					// Try searching in the current export device's profile bindings
-					actionDesc = findVJoyActionInSimulator(gb.VJoyDevice, gb.VJoyButton, exportDevice.Profile.Bindings, vJoyGUIDs)
-				}
-			case gb.VJoyAxis > 0:
-				actionDesc = findVJoyAxisActionInSimulator(gb.VJoyDevice, gb.VJoyAxis, fullProfile.Bindings, vJoyGUIDs)
-				if actionDesc == "" {
-					actionDesc = findVJoyAxisActionInSimulator(gb.VJoyDevice, gb.VJoyAxis, exportDevice.Profile.Bindings, vJoyGUIDs)
-				}
-			case gb.VJoyHat > 0:
-				// gb.InputID is in format "hatNum_direction" (e.g., "1_U")
-				// Extract direction from InputID
-				direction := ""
-				if parts := strings.Split(gb.InputID, "_"); len(parts) >= 2 {
-					direction = parts[1]
-				}
-				actionDesc = findVJoyHatActionInSimulator(gb.VJoyDevice, gb.VJoyHat, direction, fullProfile.Bindings, vJoyGUIDs)
-				if actionDesc == "" {
-					actionDesc = findVJoyHatActionInSimulator(gb.VJoyDevice, gb.VJoyHat, direction, exportDevice.Profile.Bindings, vJoyGUIDs)
-				}
-			}
-
-			// If no action found, show vJoy mapping as fallback with "(unassigned)" prefix
-			if actionDesc == "" {
-				switch {
-				case gb.VJoyButton > 0:
-					actionDesc = fmt.Sprintf("(unassigned) vJoy%d BTN%d", gb.VJoyDevice, gb.VJoyButton)
-				case gb.VJoyAxis > 0:
-					actionDesc = fmt.Sprintf("(unassigned) vJoy%d Axis%d", gb.VJoyDevice, gb.VJoyAxis)
-				case gb.VJoyHat > 0:
-					actionDesc = fmt.Sprintf("(unassigned) vJoy%d POV%d", gb.VJoyDevice, gb.VJoyHat)
-				}
-			}
-		case gb.KeyboardKey != "":
-			// Keyboard mapping - try to find matching action
-			actionDesc = findSimulatorActionForGremlins(gb, fullProfile.Bindings)
-			if actionDesc == "" {
-				actionDesc = gb.KeyboardKey
-			}
-		case gb.MouseButton != "":
-			actionDesc = gb.MouseButton
-		}
-
-		// Build final description
-		// When simulator actions are found, use them directly without Gremlins description
-		// Gremlins description is only used as fallback when no simulator action is found
-		switch {
-		case actionDesc != "":
-			binding.Description = actionDesc
-		case gb.Description != "":
-			binding.Description = gb.Description
-		default:
-			binding.Description = "Gremlins"
-		}
+		// When a simulator action is found it is used directly; the Gremlins
+		// description is only a fallback.
+		binding.Description = cmp.Or(
+			describeGremlinsBinding(gb, exportDevice, fullProfile, vJoyGUIDs),
+			gb.Description,
+			"Gremlins",
+		)
 
 		exportDevice.Profile.Bindings = append(exportDevice.Profile.Bindings, binding)
 	}
+}
+
+// applyModeModifier attaches the Gremlins mode of a binding as a modifier, so the
+// diagram colours it like a DCS modifier, and registers the button that activates
+// that mode for the legend.
+func applyModeModifier(binding *common.Binding, gb *Binding, modeSwitchers map[string]*Binding, profile *common.Profile) {
+	if gb.Mode == "" || gb.Mode == "Base" {
+		return
+	}
+
+	switcher, found := modeSwitchers[gb.Mode]
+	if !found {
+		return
+	}
+
+	// Modifier key in the same shape as DCS: GREMLINS_MODE_Shift
+	modifierKey := fmt.Sprintf("GREMLINS_MODE_%s", gb.Mode)
+	binding.Modifiers = []common.Modifier{
+		{
+			Keys:     []string{modifierKey},
+			Action:   fmt.Sprintf("Gremlins Mode: %s", gb.Mode),
+			IsSwitch: true, // Modes act like switches in Gremlins
+		},
+	}
+
+	if profile.ModifierDeviceMap == nil {
+		profile.ModifierDeviceMap = make(map[string]common.ModifierInfo)
+	}
+	if _, exists := profile.ModifierDeviceMap[modifierKey]; !exists {
+		profile.ModifierDeviceMap[modifierKey] = common.ModifierInfo{
+			DeviceGUID: switcher.DeviceGUID,
+			DeviceName: switcher.DeviceName,
+			Key:        fmt.Sprintf("BTN%s", switcher.InputID),
+			IsSwitch:   true,
+		}
+	}
+}
+
+// applyVirtualTarget records what the physical control is remapped onto - a vJoy
+// control, a keyboard key or a mouse button - in the binding's virtual columns.
+func applyVirtualTarget(binding *common.Binding, gb *Binding, vJoyGUIDs map[int]string) {
+	switch {
+	case gb.VJoyDevice > 0:
+		// Prefer the GUID prefix, for naming consistency with IL-2 bindings
+		binding.VirtualDevice = fmt.Sprintf("vJoy Device #%d", gb.VJoyDevice)
+		if vjoyGUID, ok := vJoyGUIDs[gb.VJoyDevice]; ok && len(vjoyGUID) >= 8 {
+			binding.VirtualDevice = "vJoy Device " + strings.ToLower(vjoyGUID[:8])
+		}
+
+		switch {
+		case gb.VJoyButton > 0:
+			binding.VirtualInput = fmt.Sprintf("BTN%d", gb.VJoyButton)
+		case gb.VJoyAxis > 0:
+			binding.VirtualInput = fmt.Sprintf("Axis%d", gb.VJoyAxis)
+		case gb.VJoyHat > 0:
+			// gb.InputID is "hatNum_direction" (e.g. "1_U"), giving "POV_1_U"
+			binding.VirtualInput = "POV_" + gb.InputID
+		}
+	case gb.KeyboardKey != "":
+		binding.VirtualDevice = "Keyboard"
+		binding.VirtualInput = gb.KeyboardKey
+	case gb.MouseButton != "":
+		binding.VirtualDevice = "Mouse"
+		binding.VirtualInput = gb.MouseButton
+	}
+}
+
+// describeGremlinsBinding resolves what a remapped control actually does, by
+// looking up the simulator action bound to its virtual target. Returns "" when
+// nothing can be resolved.
+func describeGremlinsBinding(gb *Binding, exportDevice *common.ExportDevice, fullProfile *common.Profile, vJoyGUIDs map[int]string) string {
+	switch {
+	case gb.VJoyDevice > 0:
+		return describeVJoyBinding(gb, exportDevice, fullProfile, vJoyGUIDs)
+	case gb.KeyboardKey != "":
+		// Keyboard mapping - try to find matching action
+		return cmp.Or(findSimulatorActionForGremlins(gb, fullProfile.Bindings), gb.KeyboardKey)
+	case gb.MouseButton != "":
+		return gb.MouseButton
+	}
+	return ""
+}
+
+// describeVJoyBinding finds the simulator action bound to a vJoy control, looking
+// first in the whole profile then in the export device itself. Unbound vJoy
+// controls are labelled "(unassigned)" rather than left blank.
+func describeVJoyBinding(gb *Binding, exportDevice *common.ExportDevice, fullProfile *common.Profile, vJoyGUIDs map[int]string) string {
+	// Search the full profile first, then the current export device's bindings
+	search := func(find func([]common.Binding) string) string {
+		return cmp.Or(find(fullProfile.Bindings), find(exportDevice.Profile.Bindings))
+	}
+
+	switch {
+	case gb.VJoyButton > 0:
+		return cmp.Or(
+			search(func(bindings []common.Binding) string {
+				return findVJoyActionInSimulator(gb.VJoyDevice, gb.VJoyButton, bindings, vJoyGUIDs)
+			}),
+			fmt.Sprintf("(unassigned) vJoy%d BTN%d", gb.VJoyDevice, gb.VJoyButton),
+		)
+
+	case gb.VJoyAxis > 0:
+		return cmp.Or(
+			search(func(bindings []common.Binding) string {
+				return findVJoyAxisActionInSimulator(gb.VJoyDevice, gb.VJoyAxis, bindings, vJoyGUIDs)
+			}),
+			fmt.Sprintf("(unassigned) vJoy%d Axis%d", gb.VJoyDevice, gb.VJoyAxis),
+		)
+
+	case gb.VJoyHat > 0:
+		// gb.InputID is "hatNum_direction" (e.g. "1_U")
+		direction := ""
+		if _, dir, found := strings.Cut(gb.InputID, "_"); found {
+			direction = dir
+		}
+		return cmp.Or(
+			search(func(bindings []common.Binding) string {
+				return findVJoyHatActionInSimulator(gb.VJoyDevice, gb.VJoyHat, direction, bindings, vJoyGUIDs)
+			}),
+			fmt.Sprintf("(unassigned) vJoy%d POV%d", gb.VJoyDevice, gb.VJoyHat),
+		)
+	}
+
+	return ""
 }
 
 // findSimulatorActionForGremlins tries to find a simulator action that matches the Gremlins keyboard/mouse binding

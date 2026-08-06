@@ -74,11 +74,6 @@ func (p *Parser) GetName() string {
 	return "IL-2 Korea"
 }
 
-// GetType implements SimulatorParser.GetType
-func (p *Parser) GetType() common.SimulationType {
-	return common.IL2Korea
-}
-
 // Parse implements SimulatorParser.Parse
 func (p *Parser) Parse(basePath string) (*common.ProfileCollection, error) {
 	knownDevicesPath := filepath.Join(basePath, knownDevicesFileName)

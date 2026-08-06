@@ -3,9 +3,10 @@ package common
 import (
 	"bufio"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -207,12 +208,5 @@ func GetModulesFromProfiles(profiles *ProfileCollection) []string {
 		}
 	}
 
-	modules := make([]string, 0, len(moduleSet))
-	for module := range moduleSet {
-		modules = append(modules, module)
-	}
-
-	sort.Strings(modules)
-
-	return modules
+	return slices.Sorted(maps.Keys(moduleSet))
 }

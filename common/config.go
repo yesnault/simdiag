@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode"
 
 	"gopkg.in/yaml.v3"
 )
@@ -22,9 +23,8 @@ func GetConfigFileName() string {
 	return ConfigFileName
 }
 
-// MakeRelativePath converts an absolute template path to a path relative to the templates directory
-// If the path is already relative or can't be made relative, returns the original path
-// MakeRelativePath converts an absolute path to a path relative to templatesDir
+// MakeRelativePath converts an absolute template path to a path relative to templatesDir.
+// If the path is already relative or can't be made relative, returns the original path.
 func MakeRelativePath(absolutePath, templatesDir string) string {
 	if absolutePath == "" || templatesDir == "" {
 		return absolutePath
@@ -108,20 +108,6 @@ type Config struct {
 	KeyboardLayout                string                      `yaml:"keyboard_layout,omitempty"` // "qwerty" or "azerty"
 }
 
-// Helper function to get simulator key from SimulationType
-func getSimulatorKey(simType SimulationType) string {
-	switch simType {
-	case DCSWorld:
-		return "dcs_world"
-	case IL2Sturmovik:
-		return "il2_sturmovik"
-	case IL2Korea:
-		return "il2_korea"
-	default:
-		return "dcs_world"
-	}
-}
-
 // NormalizeModuleName normalizes module name from profile name
 // E.g., "M-2000C" -> "m2000c", "FA-18C_hornet" -> "fa18c", "P-47D-30" -> "p47d"
 func NormalizeModuleName(profileName string) string {
@@ -148,23 +134,19 @@ func NormalizeModuleName(profileName string) string {
 		return normalized
 	}
 
-	// Generic normalization: lowercase, remove dashes and underscores
-	result := ""
+	// Generic normalization: keep ASCII letters and digits, lowercased
+	var result strings.Builder
+	result.Grow(len(profileName))
 	for _, c := range profileName {
-		if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') {
-			result += string(c)
-		} else if c >= 'A' && c <= 'Z' {
-			result += string(c + 32) // Convert to lowercase
+		switch {
+		case c >= 'a' && c <= 'z', c >= '0' && c <= '9':
+			result.WriteRune(c)
+		case c >= 'A' && c <= 'Z':
+			result.WriteRune(unicode.ToLower(c))
 		}
 	}
 
-	return result
-}
-
-// GetCommonTemplatesDirectory returns the global templates directory
-func (c *Config) GetCommonTemplatesDirectory() string {
-	// Templates directory is now global
-	return c.TemplatesDirectory
+	return result.String()
 }
 
 // getCommonProfilePath is a generic helper to find a common profile path across all modules/simulators
@@ -255,7 +237,7 @@ func (c *Config) GetModuleConfig(simType SimulationType, moduleName string) *Mod
 		c.Simulators = make(map[string]*SimulatorConfig)
 	}
 
-	simKey := getSimulatorKey(simType)
+	simKey := simType.GetConfigKey()
 	if c.Simulators[simKey] == nil {
 		c.Simulators[simKey] = &SimulatorConfig{}
 	}
@@ -287,7 +269,7 @@ func (c *Config) GetSimulatorConfig(simType SimulationType) *SimulatorConfig {
 		c.Simulators = make(map[string]*SimulatorConfig)
 	}
 
-	key := getSimulatorKey(simType)
+	key := simType.GetConfigKey()
 	if c.Simulators[key] == nil {
 		newConfig := &SimulatorConfig{}
 
@@ -347,78 +329,91 @@ func SaveConfig(config *Config) error {
 	return nil
 }
 
-// GetTemplateMappingForDevice retrieves the template associated with a device from global config
-// Priority: 1) Exact match on alternate GUIDs, 2) Exact match on primary GUID, 3) Partial match
-func (c *Config) GetTemplateMappingForDevice(deviceGUID string) *DeviceTemplateMapping {
-	// First pass: Check for exact matches in alternate GUIDs (highest priority)
-	// This prevents collisions when multiple devices share the same first 3 GUID segments
+// exactPrimaryIndex returns the index of the mapping whose primary GUID equals
+// normalizedGUID (already passed through NormalizeGUID), or -1.
+func (c *Config) exactPrimaryIndex(normalizedGUID string) int {
+	for i := range c.DeviceMappings {
+		if NormalizeGUID(c.DeviceMappings[i].DeviceGUID) == normalizedGUID {
+			return i
+		}
+	}
+	return -1
+}
+
+// exactAlternateIndex returns the index of the mapping carrying an alternate GUID
+// equal to normalizedGUID (already passed through NormalizeGUID), or -1.
+func (c *Config) exactAlternateIndex(normalizedGUID string) int {
 	for i := range c.DeviceMappings {
 		for _, altGUID := range c.DeviceMappings[i].AlternateGUIDs {
-			if strings.EqualFold(NormalizeGUID(altGUID), NormalizeGUID(deviceGUID)) {
-				return &c.DeviceMappings[i]
+			if NormalizeGUID(altGUID) == normalizedGUID {
+				return i
 			}
 		}
 	}
+	return -1
+}
 
-	// Second pass: Check for exact match on primary GUID
-	for i := range c.DeviceMappings {
-		if strings.EqualFold(NormalizeGUID(c.DeviceMappings[i].DeviceGUID), NormalizeGUID(deviceGUID)) {
-			return &c.DeviceMappings[i]
-		}
-	}
-
-	// Third pass: Partial matching (for backward compatibility and cross-simulator support)
+// partialIndex returns the index of the first mapping whose primary or alternate
+// GUID partially matches deviceGUID (cross-simulator GUID formats), or -1.
+func (c *Config) partialIndex(deviceGUID string) int {
 	for i := range c.DeviceMappings {
 		if MatchGUIDPartial(c.DeviceMappings[i].DeviceGUID, deviceGUID) {
-			return &c.DeviceMappings[i]
+			return i
 		}
-
 		for _, altGUID := range c.DeviceMappings[i].AlternateGUIDs {
 			if MatchGUIDPartial(altGUID, deviceGUID) {
-				return &c.DeviceMappings[i]
+				return i
 			}
 		}
+	}
+	return -1
+}
+
+// exactMappingIndex finds a mapping matching deviceGUID exactly, looking at the
+// primary GUID before the alternates. Returns -1 when there is no exact match.
+// Partial matches are deliberately excluded: several distinct physical devices can
+// share the same first three GUID segments, so writing to a partial match would
+// overwrite an unrelated device's entry.
+func (c *Config) exactMappingIndex(deviceGUID string) int {
+	normalizedGUID := NormalizeGUID(deviceGUID)
+	if i := c.exactPrimaryIndex(normalizedGUID); i >= 0 {
+		return i
+	}
+	return c.exactAlternateIndex(normalizedGUID)
+}
+
+// GetTemplateMappingForDevice retrieves the template associated with a device from global config.
+// Priority: 1) Exact match on alternate GUIDs, 2) Exact match on primary GUID, 3) Partial match.
+// Alternates are checked first so that a device explicitly registered under a second
+// GUID wins over another device sharing its first three GUID segments.
+func (c *Config) GetTemplateMappingForDevice(deviceGUID string) *DeviceTemplateMapping {
+	normalizedGUID := NormalizeGUID(deviceGUID)
+
+	if i := c.exactAlternateIndex(normalizedGUID); i >= 0 {
+		return &c.DeviceMappings[i]
+	}
+	if i := c.exactPrimaryIndex(normalizedGUID); i >= 0 {
+		return &c.DeviceMappings[i]
+	}
+	if i := c.partialIndex(deviceGUID); i >= 0 {
+		return &c.DeviceMappings[i]
 	}
 	return nil
 }
 
-// UpdateDeviceMapping updates or adds a device → template mapping in global config
-// If a device with the same GUID exists (exact match): updates it
-// If a device with alternate GUID match exists (exact match): updates it
-// Otherwise: creates new mapping (no automatic alternate_guids via partial match to avoid conflicts)
+// UpdateDeviceMapping updates or adds a device → template mapping in global config.
+// An existing mapping is reused only on an exact GUID match (primary or alternate);
+// otherwise a new mapping is appended.
 func (c *Config) UpdateDeviceMapping(deviceGUID, deviceName, templatePath, templatesDir string) {
-	// Convert absolute path to relative path
 	relativePath := MakeRelativePath(templatePath, templatesDir)
 
-	normalizedGUID := NormalizeGUID(deviceGUID)
-
-	// First pass: Check for exact match on primary GUID
-	for i := range c.DeviceMappings {
-		if strings.EqualFold(NormalizeGUID(c.DeviceMappings[i].DeviceGUID), normalizedGUID) {
-			// Exact match on primary GUID - update template and name
-			c.DeviceMappings[i].TemplateFilepath = relativePath
-			c.DeviceMappings[i].DeviceName = deviceName
-			c.DeviceMappings[i].SkipTemplate = false
-			return
-		}
+	if i := c.exactMappingIndex(deviceGUID); i >= 0 {
+		c.DeviceMappings[i].TemplateFilepath = relativePath
+		c.DeviceMappings[i].DeviceName = deviceName
+		c.DeviceMappings[i].SkipTemplate = false
+		return
 	}
 
-	// Second pass: Check alternate GUIDs for exact match
-	for i := range c.DeviceMappings {
-		for _, altGUID := range c.DeviceMappings[i].AlternateGUIDs {
-			if strings.EqualFold(NormalizeGUID(altGUID), normalizedGUID) {
-				// Exact match on alternate GUID - update template and name
-				c.DeviceMappings[i].TemplateFilepath = relativePath
-				c.DeviceMappings[i].DeviceName = deviceName
-				c.DeviceMappings[i].SkipTemplate = false
-				return
-			}
-		}
-	}
-
-	// No exact match found - create new mapping
-	// Note: We don't automatically add to alternate_guids via partial matching
-	// because multiple different physical devices can share the same first 3 GUID segments
 	c.DeviceMappings = append(c.DeviceMappings, DeviceTemplateMapping{
 		DeviceGUID:       deviceGUID,
 		DeviceName:       deviceName,
@@ -444,38 +439,17 @@ func UpdateDeviceTargetNumber(mappings []DeviceTemplateMapping, deviceGUID strin
 	}
 }
 
-// MarkDeviceAsSkipped marks a device as explicitly not having a template in global config
-// If a device with the same GUID exists (exact match): updates it
-// If a device with alternate GUID match exists (exact match): updates it
-// Otherwise: creates new mapping with skip flag (no automatic alternate_guids to avoid conflicts)
+// MarkDeviceAsSkipped marks a device as explicitly not having a template in global config.
+// An existing mapping is reused only on an exact GUID match (primary or alternate);
+// otherwise a new mapping carrying the skip flag is appended.
 func (c *Config) MarkDeviceAsSkipped(deviceGUID, deviceName string) {
-	normalizedGUID := NormalizeGUID(deviceGUID)
-
-	// First pass: Check for exact match on primary GUID
-	for i := range c.DeviceMappings {
-		if strings.EqualFold(NormalizeGUID(c.DeviceMappings[i].DeviceGUID), normalizedGUID) {
-			// Exact match on primary GUID
-			c.DeviceMappings[i].SkipTemplate = true
-			c.DeviceMappings[i].TemplateFilepath = ""
-			c.DeviceMappings[i].DeviceName = deviceName
-			return
-		}
+	if i := c.exactMappingIndex(deviceGUID); i >= 0 {
+		c.DeviceMappings[i].SkipTemplate = true
+		c.DeviceMappings[i].TemplateFilepath = ""
+		c.DeviceMappings[i].DeviceName = deviceName
+		return
 	}
 
-	// Second pass: Check alternate GUIDs for exact match
-	for i := range c.DeviceMappings {
-		for _, altGUID := range c.DeviceMappings[i].AlternateGUIDs {
-			if strings.EqualFold(NormalizeGUID(altGUID), normalizedGUID) {
-				// Exact match on alternate GUID
-				c.DeviceMappings[i].SkipTemplate = true
-				c.DeviceMappings[i].TemplateFilepath = ""
-				c.DeviceMappings[i].DeviceName = deviceName
-				return
-			}
-		}
-	}
-
-	// No exact match found - create new mapping with skip flag
 	c.DeviceMappings = append(c.DeviceMappings, DeviceTemplateMapping{
 		DeviceGUID:       deviceGUID,
 		DeviceName:       deviceName,
@@ -508,59 +482,6 @@ func (c *Config) GetTemplatePathIfExists(deviceGUID string) (string, bool) {
 	}
 
 	return absolutePath, true
-}
-
-// GetTemplateMappingForDeviceInModule retrieves the template for a device in a specific module
-func (c *Config) GetTemplateMappingForDeviceInModule(deviceGUID string) *DeviceTemplateMapping {
-	// Now uses global device mappings - moduleName parameter is kept for API compatibility
-	return c.GetTemplateMappingForDevice(deviceGUID)
-}
-
-// GetTemplatePathIfExistsInModule returns the template path if it exists (now uses global templates directory)
-func (c *Config) GetTemplatePathIfExistsInModule(deviceGUID string) (string, bool) {
-	mapping := c.GetTemplateMappingForDeviceInModule(deviceGUID)
-	if mapping == nil {
-		return "", false
-	}
-
-	// If user explicitly chose to skip template, return empty
-	if mapping.SkipTemplate {
-		return "", false
-	}
-
-	// Get global templates directory
-	templatesDir := c.TemplatesDirectory
-
-	// Reconstruct absolute path from templates directory + relative path
-	absolutePath := MakeAbsolutePath(mapping.TemplateFilepath, templatesDir)
-
-	// Check that file still exists
-	if _, err := os.Stat(absolutePath); err != nil {
-		return "", false
-	}
-
-	return absolutePath, true
-}
-
-// GetAllModules returns all configured module names for a simulator
-func (c *Config) GetAllModules(simType SimulationType) []string {
-	if c.Simulators == nil {
-		return []string{}
-	}
-
-	simKey := getSimulatorKey(simType)
-	simConfig := c.Simulators[simKey]
-
-	if simConfig == nil || simConfig.Modules == nil {
-		return []string{}
-	}
-
-	modules := make([]string, 0, len(simConfig.Modules))
-	for moduleName := range simConfig.Modules {
-		modules = append(modules, moduleName)
-	}
-
-	return modules
 }
 
 // VerifyDrawIOPath checks if draw.io is available at configured or default paths
@@ -657,7 +578,7 @@ func (c *Config) DuplicateModuleConfig(sourceModule, targetModule string) error 
 
 	dcsConfig := c.Simulators["dcs_world"]
 	if dcsConfig == nil {
-		return fmt.Errorf("DCS World configuration not found")
+		return fmt.Errorf("no DCS World configuration found")
 	}
 
 	if dcsConfig.Modules == nil {

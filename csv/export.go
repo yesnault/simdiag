@@ -1,14 +1,61 @@
 package csv
 
 import (
+	"cmp"
+	stdcsv "encoding/csv"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"simdiag/common"
 )
+
+var (
+	vJoyGUIDPattern   = regexp.MustCompile(`(?i)vjoy\s+device\s+([a-f0-9]{8})`)
+	vJoyNumberPattern = regexp.MustCompile(`#(\d+)`)
+)
+
+// dedupKey identifies a unique exported row.
+//
+// Physical device and input are part of the key so that two different physical
+// buttons emitting the same virtual keys (e.g. Joystick BTN5 and Throttle BTN12
+// both sending LShift+G) are not collapsed together. Module is part of the key so
+// that SRS and OpenKneeboard bindings survive across modules. The modifier is
+// deliberately absent: one physical button used with different modifiers still
+// produces a single row.
+type dedupKey struct {
+	action         string
+	virtualDevice  string // normalized through normalizeVJoyName
+	virtualInput   string
+	physicalDevice string
+	physicalInput  string
+	module         string
+}
+
+// virtualRef addresses a virtual control: a normalized virtual device plus input.
+type virtualRef struct {
+	device string
+	input  string
+}
+
+// physicalMapping records the physical control sitting behind a virtual input, so
+// that every action bound to that virtual input can inherit it.
+type physicalMapping struct {
+	device     string
+	input      string
+	deviceGUID string
+	modifier   string
+}
+
+// deviceMeta holds the per-ExportDevice values shared by all of its rows.
+type deviceMeta struct {
+	simulator    string
+	module       string
+	templatePath string
+}
 
 // ExportToCSV exports all bindings to a CSV file
 func ExportToCSV(exportDevices []*common.ExportDevice, outputPath string, config *common.Config) error {
@@ -16,318 +63,298 @@ func ExportToCSV(exportDevices []*common.ExportDevice, outputPath string, config
 		return nil
 	}
 
-	// Collect all rows, deduplicating by action + virtual device/input
-	// Key: "action|virtualDevice|virtualInput" -> row data
-	// Keep the row with physical device info if available
-	rowMap := make(map[string]*csvRowData)
+	rowMap, physicalMappings := collectRows(exportDevices, config)
+	propagatePhysicalMappings(rowMap, physicalMappings)
 
-	// Track physical device mappings by virtual device+input
-	// Key: "normalizedVirtualDevice|virtualInput" -> {physicalDevice, physicalInput, physicalDeviceGUID, modifier}
-	type physicalMapping struct {
-		device     string
-		input      string
-		deviceGUID string
-		modifier   string
-	}
-	physicalMappings := make(map[string]*physicalMapping)
+	return writeRows(outputPath, rowMap)
+}
 
-	// Process each export device
+// collectRows turns every binding into a deduplicated CSV row, and indexes which
+// physical control drives each virtual input.
+func collectRows(exportDevices []*common.ExportDevice, config *common.Config) (map[dedupKey]*csvRowData, map[virtualRef]*physicalMapping) {
+	rowMap := make(map[dedupKey]*csvRowData)
+	physicalMappings := make(map[virtualRef]*physicalMapping)
+
 	for _, exportDevice := range exportDevices {
-		// Get template path (relative to templates_directory)
-		templatePath := ""
-		if exportDevice.Template != nil && exportDevice.Template.FilePath != "" {
-			if config != nil && config.TemplatesDirectory != "" {
-				templatePath = common.MakeRelativePath(exportDevice.Template.FilePath, config.TemplatesDirectory)
-			} else {
-				templatePath = exportDevice.Template.FilePath
-			}
-		}
-		// Determine simulator name
-		simulator := exportDevice.Profile.SimType.GetConfigKey()
-
-		// Determine module name
-		module := ""
-		switch {
-		case exportDevice.Profile.SimType == common.DCSWorld && exportDevice.Profile.Module != "":
-			module = exportDevice.Profile.Module
-		case exportDevice.Profile.SimType == common.IL2Sturmovik:
-			module = "il2"
-		case exportDevice.Profile.SimType == common.IL2Korea:
-			module = "il2-korea"
+		meta := deviceMeta{
+			simulator:    exportDevice.Profile.SimType.GetConfigKey(),
+			module:       common.ModuleKey(exportDevice.Profile.SimType, exportDevice.Profile.Module),
+			templatePath: templatePathFor(exportDevice, config),
 		}
 
-		// Process each binding
+		// Switch/Modifier bindings are included so diagrams can be regenerated
+		// from the CSV with their mode-switching information intact.
 		for _, binding := range exportDevice.Profile.Bindings {
-			// Note: We now include Switch/Modifier bindings in CSV so they can be regenerated
-			// These are important for displaying mode switching information in diagrams
-
-			// Use the simulator from the profile - SRS and OpenKneeboard are tools, not simulators
-			// They are used within DCS or IL2, so keep the original simulator value
-			bindingSimulator := simulator
-
-			// Get action text (what's displayed to the user)
-			action := getBindingDisplayText(binding)
-
-			// Clean up action text for CSV
-			action = strings.ReplaceAll(action, "\"", "\"\"") // Escape quotes
-			action = strings.ReplaceAll(action, "\n", " ")    // Remove line breaks
-			action = strings.TrimSpace(action)
-
-			// Get modifier text, modifier device, and modifier number
-			modifierText := ""
-			modifierDeviceName := ""
-			modifierNum := ""
-
-			// Get modifier number from binding (already assigned by AssignModifierNumbers)
-			if binding.ModifierNum > 0 {
-				modifierNum = fmt.Sprintf("%d", binding.ModifierNum)
-			}
-
-			if len(binding.Modifiers) > 0 {
-				modifierKeys := make([]string, 0)
-				for _, mod := range binding.Modifiers {
-					if len(mod.Keys) > 0 {
-						// Extract just the button name from modifier key
-						// e.g., "JOY_BTN105" -> "BTN105", "GREMLINS_MODE_Shift" -> "Shift"
-						// Also get device name from the first modifier key
-						for _, key := range mod.Keys {
-							// Get modifier device name from ModifierDeviceMap
-							if modifierDeviceName == "" && strings.HasPrefix(key, "JOY_BTN") {
-								if modInfo, exists := exportDevice.Profile.ModifierDeviceMap[key]; exists {
-									modifierDeviceName = modInfo.DeviceName
-								}
-							}
-
-							switch {
-							case strings.HasPrefix(key, "JOY_BTN"):
-								modifierKeys = append(modifierKeys, strings.TrimPrefix(key, "JOY_"))
-							case strings.HasPrefix(key, "GREMLINS_MODE_"):
-								modifierKeys = append(modifierKeys, strings.TrimPrefix(key, "GREMLINS_MODE_"))
-							default:
-								modifierKeys = append(modifierKeys, key)
-							}
-						}
-					}
-				}
-				modifierText = strings.Join(modifierKeys, " + ")
-			}
-
-			// Get input text
-			inputText := ""
-			switch binding.InputType {
-			case common.Button:
-				inputText = "BTN" + binding.InputID
-			case common.Axis:
-				inputText = "Axis " + binding.InputID
-			case common.Hat:
-				inputText = "POV " + binding.InputID
-			}
-
-			// Calculate template key that will be replaced in the SVG template
-			// Strip _OFF suffix so BTN25_OFF maps to Button_25 (not Button_25_OFF)
-			templateInputID := strings.TrimSuffix(binding.InputID, "_OFF")
-
-			var templateKey string
-			switch binding.InputType {
-			case common.Button:
-				templateKey = fmt.Sprintf("Button_%s", templateInputID)
-			case common.Axis:
-				templateKey = fmt.Sprintf("AXIS_%s", strings.ToUpper(templateInputID))
-			case common.Hat:
-				templateKey = fmt.Sprintf("POV_%s", strings.ToUpper(templateInputID))
-			}
-
-			// Skip keyboard bindings - we only want joystick/controller bindings
-			isKeyboard := strings.EqualFold(binding.DeviceName, "Keyboard")
-
-			if isKeyboard {
+			row, key, ok := buildRow(binding, exportDevice, meta)
+			if !ok {
 				continue
 			}
 
-			// Determine if device is virtual (vJoy, etc.) or physical
-			// vJoy devices should go in Virtual Device/Input columns
-			physicalDevice := ""
-			physicalInput := ""
-			physicalDeviceGUID := ""
-			virtualDevice := binding.VirtualDevice
-			virtualInput := binding.VirtualInput
+			recordPhysicalMapping(physicalMappings, key, row)
+			mergeRow(rowMap, key, row)
+		}
+	}
 
-			// Normalize key order in virtualInput for consistent comparison
-			// This ensures "F + LShift" and "LShift + F" are treated as the same
-			if virtualDevice == "Keyboard" && virtualInput != "" {
-				// Split by " + ", normalize order, rejoin
-				keys := strings.Split(virtualInput, " + ")
-				normalizedKeys := common.NormalizeKeyOrder(keys)
-				virtualInput = strings.Join(normalizedKeys, " + ")
-			}
+	return rowMap, physicalMappings
+}
 
-			isVirtualDevice := strings.Contains(strings.ToLower(binding.DeviceName), "vjoy")
+// templatePathFor returns the export device's template path, relative to the
+// configured templates directory when possible.
+func templatePathFor(exportDevice *common.ExportDevice, config *common.Config) string {
+	if exportDevice.Template == nil || exportDevice.Template.FilePath == "" {
+		return ""
+	}
+	if config == nil || config.TemplatesDirectory == "" {
+		return exportDevice.Template.FilePath
+	}
+	return common.MakeRelativePath(exportDevice.Template.FilePath, config.TemplatesDirectory)
+}
 
-			if isVirtualDevice {
-				// Device is virtual (vJoy) - put in virtual columns
-				// Normalize name to "vJoy Device <GUID[:8]>" for clarity
-				shortGUID := common.NormalizeGUIDShort(binding.DeviceGUID)
-				if shortGUID != "" {
-					virtualDevice = fmt.Sprintf("vJoy Device %s", shortGUID)
-				} else {
-					virtualDevice = binding.DeviceName
+// buildRow converts one binding into a CSV row and its deduplication key.
+// It reports false for bindings that do not belong in the export (keyboard).
+func buildRow(binding common.Binding, exportDevice *common.ExportDevice, meta deviceMeta) (*csvRowData, dedupKey, bool) {
+	// Only joystick/controller bindings are exported
+	if strings.EqualFold(binding.DeviceName, "Keyboard") {
+		return nil, dedupKey{}, false
+	}
+
+	// Keep every action on a single CSV line; quoting is handled by the writer
+	action := strings.TrimSpace(strings.ReplaceAll(binding.DisplayText(), "\n", " "))
+
+	modifierText, modifierDeviceName := formatModifiers(binding, exportDevice.Profile)
+
+	modifierNum := ""
+	if binding.ModifierNum > 0 {
+		// Already assigned by AssignModifierNumbers
+		modifierNum = fmt.Sprintf("%d", binding.ModifierNum)
+	}
+
+	physical, virtual := splitPhysicalVirtual(binding)
+
+	row := &csvRowData{
+		simulator:          meta.simulator,
+		module:             meta.module,
+		action:             action,
+		modifier:           modifierText,
+		modifierDevice:     modifierDeviceName,
+		modifierNum:        modifierNum,
+		physicalDevice:     physical.device,
+		physicalInput:      physical.input,
+		physicalDeviceGUID: physical.deviceGUID,
+		virtualDevice:      virtual.device,
+		virtualInput:       virtual.input,
+		templateKey:        common.TemplateKeyFor(binding.InputType, binding.InputID),
+		templatePath:       meta.templatePath,
+	}
+
+	key := dedupKey{
+		action:         action,
+		virtualDevice:  normalizedVJoyDevice(virtual.device),
+		virtualInput:   virtual.input,
+		physicalDevice: physical.device,
+		physicalInput:  physical.input,
+		module:         meta.module,
+	}
+
+	return row, key, true
+}
+
+// formatModifiers renders a binding's modifiers as they appear in the CSV
+// ("BTN105 + Shift") and returns the device owning the first joystick modifier.
+func formatModifiers(binding common.Binding, profile *common.Profile) (text, deviceName string) {
+	if len(binding.Modifiers) == 0 {
+		return "", ""
+	}
+
+	modifierKeys := make([]string, 0, len(binding.Modifiers))
+	for _, mod := range binding.Modifiers {
+		for _, key := range mod.Keys {
+			// The first joystick modifier names the device shown in the legend
+			if deviceName == "" && strings.HasPrefix(key, "JOY_BTN") {
+				if modInfo, exists := profile.ModifierDeviceMap[key]; exists {
+					deviceName = modInfo.DeviceName
 				}
-				virtualInput = inputText
-			} else {
-				// Device is physical - put in physical columns
-				physicalDevice = binding.DeviceName
-				physicalInput = inputText
-				physicalDeviceGUID = binding.DeviceGUID
 			}
 
-			// Normalize vJoy device name for deduplication
-			// Use first 8 chars of GUID or extracted number to differentiate vJoy devices
-			normalizedVirtualDevice := virtualDevice
-			if strings.Contains(strings.ToLower(virtualDevice), "vjoy") {
-				// Extract identifier from the virtual device name
-				// Format: "vJoy Device abc12345" or "vJoy Device #1"
-				normalizedVirtualDevice = normalizeVJoyName(virtualDevice)
-			}
-
-			// Track physical mappings by virtual device+input
-			// This allows us to propagate physical info to all actions on the same virtual button
-			if physicalDevice != "" && virtualInput != "" {
-				physicalKey := fmt.Sprintf("%s|%s", normalizedVirtualDevice, virtualInput)
-				if _, exists := physicalMappings[physicalKey]; !exists {
-					physicalMappings[physicalKey] = &physicalMapping{
-						device:     physicalDevice,
-						input:      physicalInput,
-						deviceGUID: physicalDeviceGUID,
-						modifier:   modifierText,
-					}
-				}
-			}
-
-			// Create deduplication key: action + virtual device + virtual input + physical device + physical input + module
-			// We include physical device/input to avoid deduplicating different physical buttons
-			// that happen to send the same virtual keys (e.g., Joystick BTN5 and Throttle BTN12 both sending LShift+G)
-			// We include module to avoid deduplicating SRS/OpenKneeboard bindings across different modules
-			// Note: modifier is NOT included - same physical button with different modifiers are still deduplicated
-			dedupKey := fmt.Sprintf("%s|%s|%s|%s|%s|%s", action, normalizedVirtualDevice, virtualInput, physicalDevice, physicalInput, module)
-
-			row := &csvRowData{
-				simulator:          bindingSimulator,
-				module:             module,
-				action:             action,
-				modifier:           modifierText,
-				modifierDevice:     modifierDeviceName,
-				modifierNum:        modifierNum,
-				physicalDevice:     physicalDevice,
-				physicalInput:      physicalInput,
-				physicalDeviceGUID: physicalDeviceGUID,
-				virtualDevice:      virtualDevice,
-				virtualInput:       virtualInput,
-				templateKey:        templateKey,
-				templatePath:       templatePath,
-			}
-
-			// Check if we already have this entry
-			if existing, exists := rowMap[dedupKey]; exists {
-				// Keep the one with physical device info (it also has the correct modifier from Gremlins)
-				if existing.physicalDevice == "" && physicalDevice != "" {
-					rowMap[dedupKey] = row
-				}
-				// If existing has no ACTION text (just "TARGET"), prefer the new one with actual description
-				if strings.HasPrefix(existing.action, "TARGET") && !strings.HasPrefix(action, "TARGET") {
-					rowMap[dedupKey] = row
-				}
-				// Otherwise keep existing (which already has physical info or both are empty)
-			} else {
-				rowMap[dedupKey] = row
+			// "JOY_BTN105" -> "BTN105", "GREMLINS_MODE_Shift" -> "Shift"
+			switch {
+			case strings.HasPrefix(key, "JOY_BTN"):
+				modifierKeys = append(modifierKeys, strings.TrimPrefix(key, "JOY_"))
+			case strings.HasPrefix(key, "GREMLINS_MODE_"):
+				modifierKeys = append(modifierKeys, strings.TrimPrefix(key, "GREMLINS_MODE_"))
+			default:
+				modifierKeys = append(modifierKeys, key)
 			}
 		}
 	}
 
-	// Propagate physical device info to all rows sharing the same virtual button
-	// This ensures that if Gremlins maps Throttle BTN8 -> vJoy2 BTN8,
-	// ALL actions on vJoy2 BTN8 get the physical device info
+	return strings.Join(modifierKeys, " + "), deviceName
+}
+
+// physicalRef holds the physical columns of a row.
+type physicalRef struct {
+	device     string
+	input      string
+	deviceGUID string
+}
+
+// splitPhysicalVirtual routes a binding into the physical or the virtual columns.
+// vJoy devices are virtual controls, so they land in the virtual columns and leave
+// the physical ones empty until propagatePhysicalMappings fills them in.
+func splitPhysicalVirtual(binding common.Binding) (physicalRef, virtualRef) {
+	inputText := common.FormatInputText(binding.InputType, binding.InputID)
+
+	virtual := virtualRef{device: binding.VirtualDevice, input: binding.VirtualInput}
+
+	// Normalize key order so that "F + LShift" and "LShift + F" compare equal
+	if virtual.device == "Keyboard" && virtual.input != "" {
+		keys := common.NormalizeKeyOrder(strings.Split(virtual.input, " + "))
+		virtual.input = strings.Join(keys, " + ")
+	}
+
+	if !strings.Contains(strings.ToLower(binding.DeviceName), "vjoy") {
+		return physicalRef{
+			device:     binding.DeviceName,
+			input:      inputText,
+			deviceGUID: binding.DeviceGUID,
+		}, virtual
+	}
+
+	// Normalize the name to "vJoy Device <GUID[:8]>" for clarity
+	virtual.device = binding.DeviceName
+	if shortGUID := common.NormalizeGUIDShort(binding.DeviceGUID); shortGUID != "" {
+		virtual.device = "vJoy Device " + shortGUID
+	}
+	virtual.input = inputText
+
+	return physicalRef{}, virtual
+}
+
+// recordPhysicalMapping remembers the physical control behind a virtual input, the
+// first time that virtual input is seen with one.
+func recordPhysicalMapping(physicalMappings map[virtualRef]*physicalMapping, key dedupKey, row *csvRowData) {
+	if row.physicalDevice == "" || row.virtualInput == "" {
+		return
+	}
+
+	ref := virtualRef{device: key.virtualDevice, input: row.virtualInput}
+	if _, exists := physicalMappings[ref]; exists {
+		return
+	}
+
+	physicalMappings[ref] = &physicalMapping{
+		device:     row.physicalDevice,
+		input:      row.physicalInput,
+		deviceGUID: row.physicalDeviceGUID,
+		modifier:   row.modifier,
+	}
+}
+
+// mergeRow stores row under key, preferring the variant that carries physical
+// device information and a real action label over a bare "TARGET" placeholder.
+func mergeRow(rowMap map[dedupKey]*csvRowData, key dedupKey, row *csvRowData) {
+	existing, exists := rowMap[key]
+	if !exists {
+		rowMap[key] = row
+		return
+	}
+
+	// The row with physical info also carries the correct modifier from Gremlins
+	if existing.physicalDevice == "" && row.physicalDevice != "" {
+		rowMap[key] = row
+	}
+	// Prefer an actual description over a bare "TARGET" label
+	if strings.HasPrefix(existing.action, "TARGET") && !strings.HasPrefix(row.action, "TARGET") {
+		rowMap[key] = row
+	}
+}
+
+// propagatePhysicalMappings fills in the physical columns of rows that only know
+// their virtual control. When Gremlins maps Throttle BTN8 to vJoy2 BTN8, every
+// action on vJoy2 BTN8 gets the throttle's device information.
+func propagatePhysicalMappings(rowMap map[dedupKey]*csvRowData, physicalMappings map[virtualRef]*physicalMapping) {
 	for _, row := range rowMap {
-		if row.physicalDevice == "" && row.virtualInput != "" {
-			normalizedVD := row.virtualDevice
-			if strings.Contains(strings.ToLower(row.virtualDevice), "vjoy") {
-				normalizedVD = normalizeVJoyName(row.virtualDevice)
-			}
-			physicalKey := fmt.Sprintf("%s|%s", normalizedVD, row.virtualInput)
-			if mapping, exists := physicalMappings[physicalKey]; exists {
-				row.physicalDevice = mapping.device
-				row.physicalInput = mapping.input
-				row.physicalDeviceGUID = mapping.deviceGUID
-				// Also propagate the modifier from Gremlins if the row doesn't have one
-				if row.modifier == "" && mapping.modifier != "" {
-					row.modifier = mapping.modifier
-				}
-			}
+		if row.physicalDevice != "" || row.virtualInput == "" {
+			continue
+		}
+
+		ref := virtualRef{device: normalizedVJoyDevice(row.virtualDevice), input: row.virtualInput}
+		mapping, exists := physicalMappings[ref]
+		if !exists {
+			continue
+		}
+
+		row.physicalDevice = mapping.device
+		row.physicalInput = mapping.input
+		row.physicalDeviceGUID = mapping.deviceGUID
+
+		// Also propagate the modifier from Gremlins if the row doesn't have one
+		if row.modifier == "" && mapping.modifier != "" {
+			row.modifier = mapping.modifier
 		}
 	}
+}
 
-	// Ensure output directory exists
-	outputDir := filepath.Dir(outputPath)
-	if err := os.MkdirAll(outputDir, 0755); err != nil {
+// writeRows writes the header and every unique row to outputPath, in a stable
+// order so that repeated exports are byte-identical.
+func writeRows(outputPath string, rowMap map[dedupKey]*csvRowData) error {
+	if err := os.MkdirAll(filepath.Dir(outputPath), 0755); err != nil {
 		return fmt.Errorf("error creating output directory: %w", err)
 	}
 
-	// Create CSV file
 	file, err := os.Create(outputPath)
 	if err != nil {
 		return fmt.Errorf("error creating CSV file: %w", err)
 	}
 	defer file.Close()
 
-	// Write CSV header
-	if _, err := file.WriteString(GetHeaderString()); err != nil {
+	writer := stdcsv.NewWriter(file)
+	if err := writer.Write(AllColumns); err != nil {
 		return fmt.Errorf("error writing CSV header: %w", err)
 	}
 
-	// Write all unique rows
-	for _, row := range rowMap {
-		csvRow := fmt.Sprintf("%s,%s,\"%s\",%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n",
-			escapeCsvField(row.simulator),
-			escapeCsvField(row.module),
-			row.action, // Already escaped above
-			escapeCsvField(row.modifier),
-			escapeCsvField(row.modifierDevice),
-			escapeCsvField(row.modifierNum),
-			escapeCsvField(row.physicalDevice),
-			escapeCsvField(row.physicalInput),
-			escapeCsvField(row.physicalDeviceGUID),
-			escapeCsvField(row.virtualDevice),
-			escapeCsvField(row.virtualInput),
-			escapeCsvField(row.templateKey),
-			escapeCsvField(row.templatePath),
-		)
-
-		if _, err := file.WriteString(csvRow); err != nil {
+	for _, key := range sortedKeys(rowMap) {
+		if err := writer.Write(rowMap[key].fields()); err != nil {
 			return fmt.Errorf("error writing CSV row: %w", err)
 		}
+	}
+
+	writer.Flush()
+	if err := writer.Error(); err != nil {
+		return fmt.Errorf("error writing CSV: %w", err)
 	}
 
 	return nil
 }
 
-// getBindingDisplayText returns the best display text for a binding
-// For IL-2: use Description (e.g. "Suralimentation") if available
-// For DCS/SRS: use Action
-func getBindingDisplayText(binding common.Binding) string {
-	if binding.Description != "" {
-		return binding.Description
+// sortedKeys returns the row keys in a deterministic order.
+func sortedKeys(rowMap map[dedupKey]*csvRowData) []dedupKey {
+	keys := make([]dedupKey, 0, len(rowMap))
+	for key := range rowMap {
+		keys = append(keys, key)
 	}
-	return binding.Action
+
+	slices.SortFunc(keys, func(a, b dedupKey) int {
+		return cmp.Or(
+			cmp.Compare(a.module, b.module),
+			cmp.Compare(a.physicalDevice, b.physicalDevice),
+			cmp.Compare(a.physicalInput, b.physicalInput),
+			cmp.Compare(a.action, b.action),
+			cmp.Compare(a.virtualDevice, b.virtualDevice),
+			cmp.Compare(a.virtualInput, b.virtualInput),
+		)
+	})
+
+	return keys
 }
 
-// escapeCsvField escapes a field for CSV format
-func escapeCsvField(field string) string {
-	// If field contains comma, quote, or newline, wrap in quotes
-	if strings.Contains(field, ",") || strings.Contains(field, "\"") || strings.Contains(field, "\n") {
-		// Escape quotes by doubling them
-		field = strings.ReplaceAll(field, "\"", "\"\"")
-		return "\"" + field + "\""
+// normalizedVJoyDevice collapses the various spellings of a vJoy device name to a
+// single identifier, leaving non-vJoy names untouched.
+func normalizedVJoyDevice(name string) string {
+	if !strings.Contains(strings.ToLower(name), "vjoy") {
+		return name
 	}
-	return field
+	return normalizeVJoyName(name)
 }
 
 // normalizeVJoyName extracts a consistent identifier from vJoy device names
@@ -337,17 +364,13 @@ func escapeCsvField(field string) string {
 // "vJoy Device abc12345" -> "vJoy_abc12345"
 func normalizeVJoyName(name string) string {
 	// Try to extract GUID prefix from "vJoy Device abc12345"
-	reGUID := regexp.MustCompile(`(?i)vjoy\s+device\s+([a-f0-9]{8})`)
-	matchesGUID := reGUID.FindStringSubmatch(name)
-	if len(matchesGUID) >= 2 {
-		return fmt.Sprintf("vJoy_%s", strings.ToLower(matchesGUID[1]))
+	if matches := vJoyGUIDPattern.FindStringSubmatch(name); len(matches) >= 2 {
+		return "vJoy_" + strings.ToLower(matches[1])
 	}
 
 	// Try to extract number from "vJoy Device #X"
-	reNum := regexp.MustCompile(`#(\d+)`)
-	matchesNum := reNum.FindStringSubmatch(name)
-	if len(matchesNum) >= 2 {
-		return fmt.Sprintf("vJoy_%s", matchesNum[1])
+	if matches := vJoyNumberPattern.FindStringSubmatch(name); len(matches) >= 2 {
+		return "vJoy_" + matches[1]
 	}
 
 	return "vJoy"
