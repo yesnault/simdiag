@@ -314,7 +314,7 @@ func configureDeviceTemplate(ctx *exportContext, device *common.Device, template
 
 // tryLoadExistingTemplate attempts to load template from existing config
 func tryLoadExistingTemplate(ctx *exportContext, deviceGUID string, useExistingConfig *bool) *common.Template {
-	existingPath, exists := ctx.getTemplatePathIfExists(deviceGUID)
+	existingPath, exists := ctx.config.GetTemplatePathIfExists(deviceGUID)
 
 	if !exists {
 		fmt.Println("⚠ No template configured for this device")
@@ -352,7 +352,7 @@ func configureDeviceTemplateInteractive(ctx *exportContext, device *common.Devic
 
 // tryLoadTemplateFromCurrentModule tries to load template from current module config
 func tryLoadTemplateFromCurrentModule(ctx *exportContext, deviceGUID string) *common.Template {
-	existingPath, exists := ctx.getTemplatePathIfExists(deviceGUID)
+	existingPath, exists := ctx.config.GetTemplatePathIfExists(deviceGUID)
 	if !exists {
 		return nil
 	}
@@ -500,14 +500,6 @@ type exportContext struct {
 // isDCSModule returns true if this is a DCS module context
 func (ctx *exportContext) isDCSModule() bool {
 	return ctx.simType == common.DCSWorld && ctx.selectedModule != ""
-}
-
-// getTemplatePathIfExists gets template path from config based on context
-func (ctx *exportContext) getTemplatePathIfExists(deviceGUID string) (string, bool) {
-	if ctx.isDCSModule() {
-		return ctx.config.GetTemplatePathIfExistsInModule(deviceGUID)
-	}
-	return ctx.config.GetTemplatePathIfExists(deviceGUID)
 }
 
 // getTemplateMapping gets device template mapping from global config

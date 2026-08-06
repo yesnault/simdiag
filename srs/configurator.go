@@ -84,7 +84,7 @@ func mirrorSRSPathToKorea(config *common.Config) bool {
 // Configure prompts the user to configure SRS paths for both simulators
 func (c *Configurator) Configure(config *common.Config, batchMode bool) error {
 	if config == nil {
-		config = &common.Config{Simulators: make(map[string]*common.SimulatorConfig)}
+		return fmt.Errorf("no configuration to write SRS paths to")
 	}
 
 	il2Path, dcsPath, il2Found, dcsFound := common.VerifySRSPaths(config)

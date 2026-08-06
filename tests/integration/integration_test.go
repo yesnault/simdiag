@@ -28,14 +28,11 @@ func TestMain(m *testing.M) {
 		AutoMatchTargetDevices:    target.AutoMatchTargetDevices,
 		TargetDeviceNumberToName:  target.DeviceNumberToName,
 		GetUnmatchedTargetDevices: target.GetUnmatchedTargetDevices,
-		LoadGremlinsBindingsForDevice: func(guid string, config *common.Config) interface{} {
-			return gremlins.LoadBindingsForDevice(guid, config)
+		HasGremlinsBindingsForDevice: func(guid string, config *common.Config) bool {
+			return len(gremlins.LoadBindingsForDevice(guid, config)) > 0
 		},
-		LoadOpenKneeboardBindingsForDevice: func(guid string, config *common.Config) interface{} {
-			return openkneeboard.LoadBindingsForDevice(guid, config)
-		},
-		ParseGremlinsProfile: func(path string) (interface{}, error) {
-			return gremlins.ParseProfile(path)
+		HasOpenKneeboardBindingsForDevice: func(guid string, config *common.Config) bool {
+			return len(openkneeboard.LoadBindingsForDevice(guid, config)) > 0
 		},
 	}
 

@@ -1,16 +1,39 @@
 package svg
 
 import (
+	"cmp"
 	"fmt"
 	"html"
 	"os"
 	"path/filepath"
 	"regexp"
-	"simdiag/common"
-	"sort"
+	"slices"
 	"strings"
 	"time"
+
+	"simdiag/common"
 )
+
+// Template metadata placeholders, substituted once per generated diagram.
+var (
+	templateNamePattern = regexp.MustCompile(`\bTEMPLATE_NAME\b`)
+	currentDatePattern  = regexp.MustCompile(`\bCURRENT_DATE\b`)
+	dateTimePattern     = regexp.MustCompile(`\bDATE_TIME\b`)
+	outputDirPattern    = regexp.MustCompile(`\bOUTPUT_DIRECTORY\b`)
+	simulatorPattern    = regexp.MustCompile(`\bSIMULATOR\b`)
+	versionPattern      = regexp.MustCompile(`\bSIMDIAG_VERSION\b`)
+	titlePattern        = regexp.MustCompile(`\bTITLE\b`)
+)
+
+// unusedKeyPatterns match the placeholders that must be blanked out when no
+// binding filled them in: buttons, axes, hats and the modifier colour slots.
+var unusedKeyPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`\bButton_\d+\b`),
+	regexp.MustCompile(`\bAxis_[a-zA-Z]+_?\d*\b`),
+	regexp.MustCompile(`\bPOV_\d+_[URDL]+\b`),
+	regexp.MustCompile(`\b[a-zA-Z]+_\w+_Modifiers?\b`),
+	regexp.MustCompile(`\b[a-zA-Z]+_\w+_Modifier_\d+(_[a-zA-Z]+)?\b`),
+}
 
 // ExportToSVG exports a device to an SVG file using a template
 func ExportToSVG(exportDevice *common.ExportDevice, outputDir string) error {
@@ -18,9 +41,8 @@ func ExportToSVG(exportDevice *common.ExportDevice, outputDir string) error {
 		return fmt.Errorf("template missing for export")
 	}
 
-	// Create output directory if needed
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
-		return fmt.Errorf("error creating directory: %w", err)
+		return fmt.Errorf("error creating output directory: %w", err)
 	}
 
 	// Fill template with device data
@@ -30,25 +52,16 @@ func ExportToSVG(exportDevice *common.ExportDevice, outputDir string) error {
 	// Keep the original formatting from the template
 
 	// Generate file name based on template name
-	fileName := filepath.Base(exportDevice.Template.FilePath)
+	outputPath := filepath.Join(outputDir, filepath.Base(exportDevice.Template.FilePath))
 
-	outputPath := filepath.Join(outputDir, fileName)
-
-	// Ensure output directory exists
-	if err := os.MkdirAll(outputDir, 0755); err != nil {
-		return fmt.Errorf("error creating output directory: %w", err)
-	}
-
-	// Save file
 	if err := os.WriteFile(outputPath, []byte(svgData), 0644); err != nil {
 		return fmt.Errorf("error writing file: %w", err)
 	}
 
 	fmt.Printf("✓ Diagram exported: %s\n", outputPath)
 
-	// Convert to PNG if requested
-
-	// Create png subdirectory
+	// Convert the diagram to PNG in a png subdirectory; failures are reported but
+	// do not fail the export, since the SVG is already written.
 	pngDir := filepath.Join(outputDir, "png")
 	if err := os.MkdirAll(pngDir, 0755); err != nil {
 		fmt.Printf("  ⚠ PNG directory creation failed: %v\n", err)
@@ -69,16 +82,6 @@ func ExportToSVG(exportDevice *common.ExportDevice, outputDir string) error {
 }
 
 // populateTemplate replaces template keys with device values
-// getBindingDisplayText returns the best display text for a binding
-// For IL-2: use Description (e.g. "Suralimentation") if available
-// For DCS/SRS: use Action
-func getBindingDisplayText(binding common.Binding) string {
-	if binding.Description != "" {
-		return binding.Description
-	}
-	return binding.Action
-}
-
 func populateTemplate(exportDevice *common.ExportDevice) string {
 	data := exportDevice.Template.RawData
 
@@ -100,18 +103,7 @@ func populateTemplate(exportDevice *common.ExportDevice) string {
 			continue
 		}
 
-		// Strip _OFF suffix so BTN25_OFF maps to Button_25 (not Button_25_OFF)
-		templateInputID := strings.TrimSuffix(binding.InputID, "_OFF")
-
-		var key string
-		switch binding.InputType {
-		case common.Button:
-			key = fmt.Sprintf("Button_%s", templateInputID)
-		case common.Axis:
-			key = fmt.Sprintf("AXIS_%s", strings.ToUpper(templateInputID))
-		case common.Hat:
-			key = fmt.Sprintf("POV_%s", strings.ToUpper(templateInputID))
-		}
+		key := common.TemplateKeyFor(binding.InputType, binding.InputID)
 
 		// ACCUMULATE all actions instead of overwriting
 		bindingMap[key] = append(bindingMap[key], binding)
@@ -146,7 +138,7 @@ func buildHTMLForBindings(bindingsWithoutModifier, bindingsWithModifier []common
 
 	// Process actions without modifiers
 	for _, binding := range bindingsWithoutModifier {
-		action := getBindingDisplayText(binding)
+		action := binding.DisplayText()
 
 		if action == "" {
 			continue
@@ -171,7 +163,7 @@ func buildHTMLForBindings(bindingsWithoutModifier, bindingsWithModifier []common
 
 	// Process actions with modifiers
 	for _, binding := range bindingsWithModifier {
-		modifierAction := getBindingDisplayText(binding)
+		modifierAction := binding.DisplayText()
 		if modifierAction == "" {
 			continue
 		}
@@ -215,18 +207,17 @@ func replaceKeyInTemplate(data, key, escapedHTML string) string {
 	return pattern.ReplaceAllString(data, escapedHTML)
 }
 
-// replaceBackwardCompatModifiers replaces legacy Button_X_Modifier_N and Button_X_Modifiers patterns.
-
 // replaceKeys replaces template keys with actions (with multi-binding support).
 // Orchestrates buildHTMLForBindings and replaceKeyInTemplate.
 func replaceKeys(data string, bindingMap map[string][]common.Binding) string {
-	// Sort keys by length (descending) to avoid partial replacements
+	// Sort keys by length (descending) to avoid partial replacements, then by name
+	// so that same-length keys are always processed in the same order
 	keys := make([]string, 0, len(bindingMap))
 	for key := range bindingMap {
 		keys = append(keys, key)
 	}
-	sort.Slice(keys, func(i, j int) bool {
-		return len(keys[i]) > len(keys[j])
+	slices.SortFunc(keys, func(a, b string) int {
+		return cmp.Or(cmp.Compare(len(b), len(a)), cmp.Compare(a, b))
 	})
 
 	for _, key := range keys {
@@ -263,69 +254,44 @@ func replaceKeys(data string, bindingMap map[string][]common.Binding) string {
 
 // replaceMetadata replaces template metadata
 func replaceMetadata(data string, exportDevice *common.ExportDevice) string {
-	// Remplacer TEMPLATE_NAME
-	templateNamePattern := regexp.MustCompile(`\bTEMPLATE_NAME\b`)
-	profileName := sanitizeForSVG(exportDevice.Profile.Name)
-	data = templateNamePattern.ReplaceAllString(data, profileName)
+	now := time.Now()
 
-	// Remplacer CURRENT_DATE
-	currentDatePattern := regexp.MustCompile(`\bCURRENT_DATE\b`)
-	currentDate := time.Now().Format("2006-01-02")
-	data = currentDatePattern.ReplaceAllString(data, currentDate)
-
-	// Remplacer DATE_TIME
-	dateTimePattern := regexp.MustCompile(`\bDATE_TIME\b`)
-	dateTime := time.Now().Format("2006-01-02 15:04:05")
-	data = dateTimePattern.ReplaceAllString(data, dateTime)
-
-	// Remplacer OUTPUT_DIRECTORY
-	if exportDevice.OutputDirectory != "" {
-		outputDirPattern := regexp.MustCompile(`\bOUTPUT_DIRECTORY\b`)
-		data = outputDirPattern.ReplaceAllString(data, exportDevice.OutputDirectory)
+	// Placeholders that are always substituted
+	for _, sub := range []struct {
+		pattern *regexp.Regexp
+		value   string
+	}{
+		{templateNamePattern, sanitizeForSVG(exportDevice.Profile.Name)},
+		{currentDatePattern, now.Format("2006-01-02")},
+		{dateTimePattern, now.Format("2006-01-02 15:04:05")},
+	} {
+		data = sub.pattern.ReplaceAllString(data, sub.value)
 	}
 
-	// Remplacer SIMULATOR
-	if exportDevice.SimulatorName != "" {
-		simulatorPattern := regexp.MustCompile(`\bSIMULATOR\b`)
-		data = simulatorPattern.ReplaceAllString(data, exportDevice.SimulatorName)
-	}
-
-	// Remplacer SIMDIAG_VERSION
-	if exportDevice.SimdiagVersion != "" {
-		versionPattern := regexp.MustCompile(`\bSIMDIAG_VERSION\b`)
-		data = versionPattern.ReplaceAllString(data, exportDevice.SimdiagVersion)
-	}
-
-	// Remplacer TITLE
-	if exportDevice.Title != "" {
-		titlePattern := regexp.MustCompile(`\bTITLE\b`)
-		data = titlePattern.ReplaceAllString(data, exportDevice.Title)
+	// Placeholders left untouched when the export device carries no value, so the
+	// template can fall back to whatever it already displays
+	for _, sub := range []struct {
+		pattern *regexp.Regexp
+		value   string
+	}{
+		{outputDirPattern, exportDevice.OutputDirectory},
+		{simulatorPattern, exportDevice.SimulatorName},
+		{versionPattern, exportDevice.SimdiagVersion},
+		{titlePattern, exportDevice.Title},
+	} {
+		if sub.value != "" {
+			data = sub.pattern.ReplaceAllString(data, sub.value)
+		}
 	}
 
 	return data
 }
 
-// replaceUnusedKeys replaces unused keys with empty strings
+// replaceUnusedKeys blanks out the template placeholders that no binding filled in
 func replaceUnusedKeys(data string) string {
-	// Replace unused buttons (format: Button_1, Button_99, etc.)
-	buttonPattern := regexp.MustCompile(`\bButton_\d+\b`)
-	data = buttonPattern.ReplaceAllString(data, "")
-
-	// Replace unused axes (format: Axis_X, Axis_Y, Axis_Z, etc.)
-	axisPattern := regexp.MustCompile(`\bAxis_[a-zA-Z]+_?\d*\b`)
-	data = axisPattern.ReplaceAllString(data, "")
-
-	// Replace unused hats
-	hatPattern := regexp.MustCompile(`\bPOV_\d+_[URDL]+\b`)
-	data = hatPattern.ReplaceAllString(data, "")
-
-	// Replace unused modifiers
-	modifierPattern := regexp.MustCompile(`\b[a-zA-Z]+_\w+_Modifiers?\b`)
-	data = modifierPattern.ReplaceAllString(data, "")
-
-	modifierKeyPattern := regexp.MustCompile(`\b[a-zA-Z]+_\w+_Modifier_\d+(_[a-zA-Z]+)?\b`)
-	data = modifierKeyPattern.ReplaceAllString(data, "")
-
+	for _, pattern := range unusedKeyPatterns {
+		data = pattern.ReplaceAllString(data, "")
+	}
 	return data
 }
 
@@ -353,27 +319,29 @@ func normalizeText(s string) string {
 	return result.String()
 }
 
-// sanitizeForSVG escapes special characters for SVG display
-// getModifierColor returns RGB color for a modifier number
-func getModifierColor(modNum int) string {
-	colors := map[int]string{
-		1:  "rgb(0, 153, 0)",     // Green
-		2:  "rgb(234, 107, 102)", // Salmon
-		3:  "rgb(255, 153, 0)",   // Orange
-		4:  "rgb(255, 1, 1)",     // Red
-		5:  "rgb(255, 1, 242)",   // Magenta
-		6:  "rgb(255, 215, 0)",   // Gold/Yellow
-		7:  "rgb(148, 0, 211)",   // Dark Violet
-		8:  "rgb(255, 105, 180)", // Hot Pink
-		9:  "rgb(255, 69, 0)",    // Orange Red
-		10: "rgb(50, 205, 50)",   // Lime Green
-	}
-	if color, exists := colors[modNum]; exists {
-		return color
-	}
-	return "rgb(0, 153, 0)" // Default to green
+// modifierColors holds the colour of modifier N at index N-1.
+var modifierColors = [...]string{
+	"rgb(0, 153, 0)",     // 1  Green
+	"rgb(234, 107, 102)", // 2  Salmon
+	"rgb(255, 153, 0)",   // 3  Orange
+	"rgb(255, 1, 1)",     // 4  Red
+	"rgb(255, 1, 242)",   // 5  Magenta
+	"rgb(255, 215, 0)",   // 6  Gold/Yellow
+	"rgb(148, 0, 211)",   // 7  Dark Violet
+	"rgb(255, 105, 180)", // 8  Hot Pink
+	"rgb(255, 69, 0)",    // 9  Orange Red
+	"rgb(50, 205, 50)",   // 10 Lime Green
 }
 
+// getModifierColor returns RGB color for a modifier number
+func getModifierColor(modNum int) string {
+	if modNum >= 1 && modNum <= len(modifierColors) {
+		return modifierColors[modNum-1]
+	}
+	return modifierColors[0] // Default to green
+}
+
+// sanitizeForSVG escapes special characters for SVG display
 func sanitizeForSVG(text string) string {
 	// First normalize characters (replace & with /, other special chars with _)
 	text = normalizeText(text)

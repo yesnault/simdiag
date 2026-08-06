@@ -426,70 +426,67 @@ func keysEqual(a, b []string) bool {
 }
 
 // parseTargetInputType determines the input type from TARGET naming conventions
+// targetAxisNames maps the common TARGET axis names to DirectInput axis IDs.
+var targetAxisNames = map[string]string{
+	"JOYX": "X", "JOYY": "Y", "JOYRZ": "RZ",
+	"THR": "Z", "THROTTLE": "Z",
+	"SCX": "RX", "SCY": "RY", // Slew control
+	"MRX": "RX", "MRY": "RY", // Mini stick
+	"SLIDER": "SLIDER",
+}
+
+// hatDirectionSuffix maps the trailing letter of a TARGET hat name (H1U, CSD, ...)
+// to its direction. Returns "" for any other letter.
+func hatDirectionSuffix(c byte) string {
+	switch c {
+	case 'U', 'D', 'L', 'R':
+		return string(c)
+	}
+	return ""
+}
+
+// parseTargetHatName recognises the two TARGET spellings of a POV hat: the
+// joystick's H1U/H1D/... and the throttle's Coolie Switch CSU/CSD/... Both are
+// only real hats when the ControlIndex says DXHAT; otherwise they are buttons
+// (H2, H3 and H4 on the Warthog).
+func parseTargetHatName(name, controlIndexUpper string) (string, bool) {
+	if !strings.HasPrefix(controlIndexUpper, "DXHAT") {
+		return "", false
+	}
+
+	// Joystick hats: H<n><direction>
+	if len(name) >= 2 && name[0] == 'H' && name[1] >= '1' && name[1] <= '9' {
+		direction := ""
+		if len(name) >= 3 {
+			direction = hatDirectionSuffix(name[2])
+		}
+		return string(name[1]) + "_" + direction, true
+	}
+
+	// Warthog Throttle Coolie Switch: CS<direction>, always hat 1
+	if len(name) == 3 && strings.HasPrefix(name, "CS") {
+		if direction := hatDirectionSuffix(name[2]); direction != "" {
+			return "1_" + direction, true
+		}
+	}
+
+	return "", false
+}
+
 func parseTargetInputType(name string, controlIndex string) (common.InputType, string) {
 	name = strings.ToUpper(name)
 	controlIndexUpper := strings.ToUpper(controlIndex)
 
-	// Hat switch detection (H1U, H1D, H1L, H1R, H2U, etc.)
-	// Only treat as POV hat if ControlIndex starts with "DXHAT"
-	// H2, H3, H4 on Warthog are actually buttons with numeric ControlIndex
-	if len(name) >= 2 && name[0] == 'H' && (name[1] >= '1' && name[1] <= '9') {
-		if strings.HasPrefix(controlIndexUpper, "DXHAT") {
-			// True POV hat with DXHAT* ControlIndex
-			hatNum := string(name[1])
-			direction := ""
-			if len(name) >= 3 {
-				switch name[2] {
-				case 'U':
-					direction = "U"
-				case 'D':
-					direction = "D"
-				case 'L':
-					direction = "L"
-				case 'R':
-					direction = "R"
-				}
-			}
-			return common.Hat, fmt.Sprintf("%s_%s", hatNum, direction)
-		}
-		// Otherwise, it's a button hat (H2, H3, H4) - fall through to button detection
+	if inputID, ok := parseTargetHatName(name, controlIndexUpper); ok {
+		return common.Hat, inputID
 	}
 
-	// Coolie Switch detection (CSU, CSD, CSL, CSR on Warthog Throttle)
-	// These are the POV hat on the throttle, named differently from joystick H1*
-	if strings.HasPrefix(name, "CS") && len(name) == 3 && strings.HasPrefix(controlIndexUpper, "DXHAT") {
-		direction := ""
-		switch name[2] {
-		case 'U':
-			direction = "U"
-		case 'D':
-			direction = "D"
-		case 'L':
-			direction = "L"
-		case 'R':
-			direction = "R"
-		}
-		if direction != "" {
-			return common.Hat, fmt.Sprintf("1_%s", direction)
-		}
-	}
-
-	// Axis detection (common TARGET axis names)
-	axisNames := map[string]string{
-		"JOYX": "X", "JOYY": "Y", "JOYRZ": "RZ",
-		"THR": "Z", "THROTTLE": "Z",
-		"SCX": "RX", "SCY": "RY", // Slew control
-		"MRX": "RX", "MRY": "RY", // Mini stick
-		"SLIDER": "SLIDER",
-	}
-	if axisID, ok := axisNames[name]; ok {
+	if axisID, ok := targetAxisNames[name]; ok {
 		return common.Axis, axisID
 	}
 
-	// Check if ControlIndex contains a hat direction (DXHATUP, DXHATUPRIGHT, etc.)
-	if strings.HasPrefix(controlIndexUpper, "DXHAT") {
-		// Parse hat direction from ControlIndex
-		hatDir := strings.TrimPrefix(controlIndexUpper, "DXHAT")
+	// The ControlIndex itself can name a hat direction (DXHATUP, DXHATUPRIGHT, ...)
+	if hatDir, found := strings.CutPrefix(controlIndexUpper, "DXHAT"); found {
 		return common.Hat, parseHatDirection(hatDir)
 	}
 

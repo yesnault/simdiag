@@ -1,10 +1,6 @@
 package srs
 
-import (
-	"os"
-	"path/filepath"
-	"simdiag/common"
-)
+import "simdiag/common"
 
 // Enricher implements the BindingEnricher interface for SRS (SimpleRadio Standalone)
 type Enricher struct{}
@@ -18,11 +14,10 @@ func NewEnricher() *Enricher {
 func (e *Enricher) Enrich(exportDevice *common.ExportDevice, fullProfile *common.Profile, config *common.Config) {
 	// Get SRS path from simulator config
 	simConfig := config.GetSimulatorConfig(fullProfile.SimType)
-	srsPath := simConfig.SRSPath
-
-	if srsPath == "" {
+	if simConfig == nil || simConfig.SRSPath == "" {
 		return // SRS not configured for this simulator
 	}
+	srsPath := simConfig.SRSPath
 
 	// Parse SRS config
 	bindingsByDevice, err := ParseSRSConfig(srsPath, fullProfile.SimType)
@@ -39,30 +34,4 @@ func (e *Enricher) Enrich(exportDevice *common.ExportDevice, fullProfile *common
 			exportDevice.Profile.Bindings = append(exportDevice.Profile.Bindings, deviceBindings...)
 		}
 	}
-}
-
-// GetName returns the human-readable name of the enricher
-func (e *Enricher) GetName() string {
-	return "SRS (SimpleRadio Standalone)"
-}
-
-// IsAvailable checks if SRS is configured and available
-func (e *Enricher) IsAvailable(config *common.Config) bool {
-	if config == nil {
-		return false
-	}
-
-	// Check if at least one simulator has SRS configured
-	for _, simType := range []common.SimulationType{common.DCSWorld, common.IL2Sturmovik, common.IL2Korea} {
-		simConfig := config.GetSimulatorConfig(simType)
-		if simConfig == nil || simConfig.SRSPath == "" {
-			continue
-		}
-		configPath := filepath.Join(simConfig.SRSPath, "default.cfg")
-		if _, err := os.Stat(configPath); err == nil {
-			return true
-		}
-	}
-
-	return false
 }

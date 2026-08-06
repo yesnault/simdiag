@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"simdiag/common"
@@ -29,50 +30,66 @@ type csvRow struct {
 	templatePath       string
 }
 
-// GenerateSVGFromCSV reads a CSV file and generates SVG/PNG diagrams from it
-func GenerateSVGFromCSV(csvPath string, config *common.Config) error {
-	// Verify config
-	if config == nil {
+// groupKey identifies one generated diagram: all rows sharing a simulator, a module
+// and a template are merged into a single SVG.
+type groupKey struct {
+	simulator    string
+	module       string
+	templatePath string
+}
+
+// resolveDeviceGUID determines the GUID to use for a row's physical device.
+// The GUID stored in the CSV is preferred (round-trip fidelity); failing that the
+// device is looked up by name in the config, and as a last resort a stable
+// synthetic GUID is derived from the device name.
+func resolveDeviceGUID(row csvRow, config *common.Config) string {
+	if row.physicalDeviceGUID != "" {
+		return row.physicalDeviceGUID
+	}
+	if guid := findDeviceGUID(row.physicalDevice, config); guid != "" {
+		return guid
+	}
+	return fmt.Sprintf("%08x-0000-0000-0000-000000000000", hashString(row.physicalDevice))
+}
+
+// validateGenerationConfig checks that the config carries everything SVG
+// generation needs.
+func validateGenerationConfig(config *common.Config) error {
+	switch {
+	case config == nil:
 		return fmt.Errorf("config is required")
-	}
-	if config.TemplatesDirectory == "" {
+	case config.TemplatesDirectory == "":
 		return fmt.Errorf("templates directory not configured")
-	}
-	if config.OutputDirectory == "" {
+	case config.OutputDirectory == "":
 		return fmt.Errorf("output directory not configured")
 	}
+	return nil
+}
 
-	// Open CSV file
+// readCSVGroups reads the export and buckets its rows by simulator, module and
+// template. It also returns the keys in first-appearance order, so that diagram
+// generation does not depend on map iteration order.
+func readCSVGroups(csvPath string) (map[groupKey][]csvRow, []groupKey, error) {
 	file, err := os.Open(csvPath)
 	if err != nil {
-		return fmt.Errorf("error opening CSV file: %w", err)
+		return nil, nil, fmt.Errorf("error opening CSV file: %w", err)
 	}
 	defer file.Close()
 
-	// Read CSV
 	reader := csv.NewReader(file)
 
-	// Read header
 	header, err := reader.Read()
 	if err != nil {
-		return fmt.Errorf("error reading CSV header: %w", err)
+		return nil, nil, fmt.Errorf("error reading CSV header: %w", err)
 	}
 
-	// Validate header and get column indices
-	colIndices := make(map[string]int)
-	for i, col := range header {
-		colIndices[col] = i
-	}
-	for _, col := range simdiagcsv.AllColumns {
-		if _, exists := colIndices[col]; !exists {
-			return fmt.Errorf("missing required column: %s", col)
-		}
+	colIndices, err := columnIndices(header)
+	if err != nil {
+		return nil, nil, err
 	}
 
-	// Read all rows and group by (Simulator, Module, Template)
-	// This matches the batch workflow behavior: all devices using the same template are merged
-	// Key: "simulator|module|template" -> list of CSV rows
-	groups := make(map[string][]csvRow)
+	groups := make(map[groupKey][]csvRow)
+	var groupOrder []groupKey
 
 	for {
 		record, err := reader.Read()
@@ -80,186 +97,168 @@ func GenerateSVGFromCSV(csvPath string, config *common.Config) error {
 			break
 		}
 		if err != nil {
-			return fmt.Errorf("error reading CSV row: %w", err)
+			return nil, nil, fmt.Errorf("error reading CSV row: %w", err)
 		}
 
-		row := csvRow{
-			simulator:          record[colIndices[simdiagcsv.ColSimulator]],
-			module:             record[colIndices[simdiagcsv.ColModule]],
-			action:             record[colIndices[simdiagcsv.ColAction]],
-			modifier:           record[colIndices[simdiagcsv.ColModifier]],
-			modifierDevice:     record[colIndices[simdiagcsv.ColModifierDevice]],
-			modifierNum:        record[colIndices[simdiagcsv.ColModifierNum]],
-			physicalDevice:     record[colIndices[simdiagcsv.ColPhysicalDevice]],
-			physicalInput:      record[colIndices[simdiagcsv.ColPhysicalInput]],
-			physicalDeviceGUID: record[colIndices[simdiagcsv.ColPhysicalDeviceGUID]],
-			virtualDevice:      record[colIndices[simdiagcsv.ColVirtualDevice]],
-			virtualInput:       record[colIndices[simdiagcsv.ColVirtualInput]],
-			templateKey:        record[colIndices[simdiagcsv.ColTemplateKey]],
-			templatePath:       record[colIndices[simdiagcsv.ColTemplate]],
+		row := rowFromRecord(record, colIndices)
+
+		// Virtual-only bindings and rows without a template produce no diagram
+		if row.physicalDevice == "" || row.templatePath == "" {
+			continue
 		}
 
-		// Skip rows without physical device (virtual-only bindings)
+		// Group by template, not by device: this merges bindings from several
+		// devices that share the same template.
+		key := groupKey{simulator: row.simulator, module: row.module, templatePath: row.templatePath}
+		if _, seen := groups[key]; !seen {
+			groupOrder = append(groupOrder, key)
+		}
+		groups[key] = append(groups[key], row)
+	}
+
+	return groups, groupOrder, nil
+}
+
+// columnIndices maps each expected column name to its position in the header,
+// failing when a required column is absent.
+func columnIndices(header []string) (map[string]int, error) {
+	colIndices := make(map[string]int, len(header))
+	for i, col := range header {
+		colIndices[col] = i
+	}
+
+	for _, col := range simdiagcsv.AllColumns {
+		if _, exists := colIndices[col]; !exists {
+			return nil, fmt.Errorf("missing required column: %s", col)
+		}
+	}
+
+	return colIndices, nil
+}
+
+// rowFromRecord maps a raw CSV record onto the typed row struct.
+func rowFromRecord(record []string, colIndices map[string]int) csvRow {
+	return csvRow{
+		simulator:          record[colIndices[simdiagcsv.ColSimulator]],
+		module:             record[colIndices[simdiagcsv.ColModule]],
+		action:             record[colIndices[simdiagcsv.ColAction]],
+		modifier:           record[colIndices[simdiagcsv.ColModifier]],
+		modifierDevice:     record[colIndices[simdiagcsv.ColModifierDevice]],
+		modifierNum:        record[colIndices[simdiagcsv.ColModifierNum]],
+		physicalDevice:     record[colIndices[simdiagcsv.ColPhysicalDevice]],
+		physicalInput:      record[colIndices[simdiagcsv.ColPhysicalInput]],
+		physicalDeviceGUID: record[colIndices[simdiagcsv.ColPhysicalDeviceGUID]],
+		virtualDevice:      record[colIndices[simdiagcsv.ColVirtualDevice]],
+		virtualInput:       record[colIndices[simdiagcsv.ColVirtualInput]],
+		templateKey:        record[colIndices[simdiagcsv.ColTemplateKey]],
+		templatePath:       record[colIndices[simdiagcsv.ColTemplate]],
+	}
+}
+
+// collectGroupDevices builds the device map for a group and returns the device
+// representing it. The representative comes from row order rather than map
+// iteration, so that repeated runs produce the same diagram title.
+func collectGroupDevices(rows []csvRow, config *common.Config) (map[string]*common.Device, *common.Device) {
+	deviceMap := make(map[string]*common.Device)
+	var representative *common.Device
+
+	for _, row := range rows {
 		if row.physicalDevice == "" {
 			continue
 		}
 
-		// Skip rows without template
-		if row.templatePath == "" {
-			continue
+		deviceGUID := resolveDeviceGUID(row, config)
+		if _, exists := deviceMap[deviceGUID]; !exists {
+			deviceMap[deviceGUID] = &common.Device{
+				GUID:      deviceGUID,
+				Name:      row.physicalDevice,
+				IsVirtual: false,
+			}
 		}
 
-		// Create group key - group by template, not by device
-		// This allows merging bindings from multiple devices using the same template
-		groupKey := fmt.Sprintf("%s|%s|%s", row.simulator, row.module, row.templatePath)
-		groups[groupKey] = append(groups[groupKey], row)
+		if representative == nil {
+			representative = deviceMap[deviceGUID]
+		}
+	}
+
+	return deviceMap, representative
+}
+
+// buildExportDevice assembles the export device for one group of CSV rows.
+// It returns nil when the group has no usable template or no physical device.
+func buildExportDevice(key groupKey, rows []csvRow, config *common.Config) *common.ExportDevice {
+	if len(rows) == 0 {
+		return nil
+	}
+
+	simType := parseSimulatorType(key.simulator)
+
+	absoluteTemplatePath := common.MakeAbsolutePath(key.templatePath, config.TemplatesDirectory)
+	template, err := common.LoadTemplate(absoluteTemplatePath)
+	if err != nil {
+		fmt.Printf("  ⚠ Error loading template %s: %v\n", key.templatePath, err)
+		return nil
+	}
+
+	deviceMap, representative := collectGroupDevices(rows, config)
+	if representative == nil {
+		return nil
+	}
+
+	// Merge the bindings of every device sharing this template
+	profile := &common.Profile{
+		Name:     representative.Name,
+		SimType:  simType,
+		Module:   key.module,
+		Devices:  deviceMap,
+		Bindings: make([]common.Binding, 0, len(rows)),
+	}
+	for _, row := range rows {
+		if binding := csvRowToBinding(row, resolveDeviceGUID(row, config), row.physicalDevice); binding != nil {
+			profile.Bindings = append(profile.Bindings, *binding)
+		}
+	}
+
+	return &common.ExportDevice{
+		Device:          representative,
+		Template:        template,
+		Profile:         profile,
+		OutputDirectory: filepath.Join(config.OutputDirectory, common.OutputSubdir(simType, key.module)),
+		SimulatorName:   simType.GetConfigKey(),
+		SimdiagVersion:  common.SimdiagVersion,
+		Title:           common.ExportTitle(simType, key.module, representative.Name),
+	}
+}
+
+// GenerateSVGFromCSV reads a CSV file and generates SVG/PNG diagrams from it
+func GenerateSVGFromCSV(csvPath string, config *common.Config) error {
+	if err := validateGenerationConfig(config); err != nil {
+		return err
+	}
+
+	groups, groupOrder, err := readCSVGroups(csvPath)
+	if err != nil {
+		return err
 	}
 
 	fmt.Printf("\nGenerating diagrams from CSV (%d groups)...\n", len(groups))
 
-	// Process each group
+	// Process each group, in the order the groups first appeared in the CSV
 	exportCount := 0
 	var allValidationErrors []common.ValidationError
-	for groupKey, rows := range groups {
-		if len(rows) == 0 {
+	for _, key := range groupOrder {
+		exportDevice := buildExportDevice(key, groups[key], config)
+		if exportDevice == nil {
 			continue
 		}
 
-		// Parse group key
-		parts := strings.Split(groupKey, "|")
-		if len(parts) != 3 {
+		allValidationErrors = append(allValidationErrors, ValidateBindings(exportDevice)...)
+
+		if err := ExportToSVG(exportDevice, exportDevice.OutputDirectory); err != nil {
+			fmt.Printf("  ✗ Error exporting %s: %v\n", exportDevice.Device.Name, err)
 			continue
 		}
-		simulator := parts[0]
-		module := parts[1]
-		templatePath := parts[2]
-
-		// Determine simulator type
-		simType := parseSimulatorType(simulator)
-
-		// Load template
-		absoluteTemplatePath := common.MakeAbsolutePath(templatePath, config.TemplatesDirectory)
-		template, err := common.LoadTemplate(absoluteTemplatePath)
-		if err != nil {
-			fmt.Printf("  ⚠ Error loading template %s: %v\n", templatePath, err)
-			continue
-		}
-
-		// Collect all unique devices from rows in this group
-		// (multiple devices can use the same template)
-		deviceMap := make(map[string]*common.Device)
-		for _, row := range rows {
-			if row.physicalDevice == "" {
-				continue
-			}
-
-			// Use GUID from CSV (best for round-trip fidelity)
-			deviceGUID := row.physicalDeviceGUID
-			if deviceGUID == "" {
-				// Fallback: search in config
-				deviceGUID = findDeviceGUID(row.physicalDevice, config)
-			}
-			if deviceGUID == "" {
-				// Fallback: create a short GUID based on device name hash
-				deviceGUID = fmt.Sprintf("%08x-0000-0000-0000-000000000000", hashString(row.physicalDevice))
-			}
-
-			// Create device if not already in map
-			if _, exists := deviceMap[deviceGUID]; !exists {
-				deviceMap[deviceGUID] = &common.Device{
-					GUID:      deviceGUID,
-					Name:      row.physicalDevice,
-					IsVirtual: false,
-				}
-			}
-		}
-
-		// Use first device as representative
-		var representativeDevice *common.Device
-		var representativeName string
-		for guid, device := range deviceMap {
-			representativeDevice = device
-			representativeName = device.Name
-			_ = guid
-			break
-		}
-
-		if representativeDevice == nil {
-			continue
-		}
-
-		// Create Profile with merged bindings from all devices
-		profile := &common.Profile{
-			Name:     representativeName,
-			SimType:  simType,
-			Module:   module,
-			Devices:  deviceMap,
-			Bindings: make([]common.Binding, 0),
-		}
-
-		// Convert CSV rows to bindings
-		for _, row := range rows {
-			// Use GUID from CSV (best for round-trip fidelity)
-			deviceGUID := row.physicalDeviceGUID
-			if deviceGUID == "" {
-				// Fallback: search in config
-				deviceGUID = findDeviceGUID(row.physicalDevice, config)
-			}
-			if deviceGUID == "" {
-				// Fallback: create a short GUID based on device name hash
-				deviceGUID = fmt.Sprintf("%08x-0000-0000-0000-000000000000", hashString(row.physicalDevice))
-			}
-
-			binding := csvRowToBinding(row, deviceGUID, row.physicalDevice)
-			if binding != nil {
-				profile.Bindings = append(profile.Bindings, *binding)
-			}
-		}
-
-		// Determine output directory
-		outputDir := config.OutputDirectory
-		switch {
-		case simType == common.DCSWorld && module != "":
-			normalizedModule := common.NormalizeModuleName(module)
-			outputDir = filepath.Join(config.OutputDirectory, "dcs-"+normalizedModule)
-		case simType == common.IL2Sturmovik:
-			outputDir = filepath.Join(config.OutputDirectory, "il2")
-		case simType == common.IL2Korea:
-			outputDir = filepath.Join(config.OutputDirectory, "il2-korea")
-		}
-
-		// Create title
-		title := representativeName
-		switch {
-		case simType == common.DCSWorld && module != "":
-			title = fmt.Sprintf("DCS World / %s", strings.ToUpper(module))
-		case simType == common.IL2Sturmovik:
-			title = "IL-2 Sturmovik"
-		case simType == common.IL2Korea:
-			title = "IL-2 Korea"
-		}
-
-		// Create ExportDevice
-		exportDevice := &common.ExportDevice{
-			Device:          representativeDevice,
-			Template:        template,
-			Profile:         profile,
-			OutputDirectory: outputDir,
-			SimulatorName:   simType.GetConfigKey(),
-			SimdiagVersion:  common.SimdiagVersion,
-			Title:           title,
-		}
-
-		// Validate bindings
-		validationErrors := ValidateBindings(exportDevice)
-		allValidationErrors = append(allValidationErrors, validationErrors...)
-
-		// Export to SVG
-		if err := ExportToSVG(exportDevice, outputDir); err != nil {
-			fmt.Printf("  ✗ Error exporting %s: %v\n", representativeName, err)
-		} else {
-			exportCount++
-		}
+		exportCount++
 	}
 
 	// Display validation errors
@@ -305,30 +304,13 @@ func csvRowToBinding(row csvRow, deviceGUID, deviceName string) *common.Binding 
 		return nil
 	}
 
-	// Parse input type and ID from Physical Input
-	// Format: "BTN1", "Axis X", "POV 1_U"
-	var inputType common.InputType
-	var inputID string
-
-	switch {
-	case strings.HasPrefix(row.physicalInput, "BTN"):
-		inputType = common.Button
-		inputID = strings.TrimPrefix(row.physicalInput, "BTN")
-	case strings.HasPrefix(row.physicalInput, "Axis "):
-		inputType = common.Axis
-		inputID = strings.TrimPrefix(row.physicalInput, "Axis ")
-	case strings.HasPrefix(row.physicalInput, "POV "):
-		inputType = common.Hat
-		inputID = strings.TrimPrefix(row.physicalInput, "POV ")
-	default:
+	inputType, inputID, ok := common.ParseInputText(row.physicalInput)
+	if !ok {
 		return nil
 	}
 
-	// Parse modifier number if present
-	modifierNum := 0
-	if row.modifierNum != "" {
-		_, _ = fmt.Sscanf(row.modifierNum, "%d", &modifierNum)
-	}
+	// Parse modifier number if present; an unparseable value simply means "none"
+	modifierNum, _ := strconv.Atoi(row.modifierNum)
 
 	binding := &common.Binding{
 		DeviceGUID:    deviceGUID,

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"simdiag/common"
@@ -230,7 +231,7 @@ func runBatchExport(ctx *batchExportContext) (int, []*common.ExportDevice) {
 // createExportDeviceForGroup creates an ExportDevice for a group of devices sharing a template
 func createExportDeviceForGroup(deviceGUIDs []string, template *common.Template, ctx *batchExportContext) *common.ExportDevice {
 	mergedProfile := createMergedProfile(ctx)
-	_ = collectDeviceNames(deviceGUIDs, ctx, mergedProfile)
+	mergeDeviceBindings(deviceGUIDs, ctx, mergedProfile)
 	representativeDevice := ctx.devices[deviceGUIDs[0]]
 
 	return &common.ExportDevice{
@@ -272,17 +273,15 @@ func createMergedProfile(ctx *batchExportContext) *common.Profile {
 	return mergedProfile
 }
 
-// collectDeviceNames collects device names and merges bindings into the profile
-func collectDeviceNames(deviceGUIDs []string, ctx *batchExportContext, mergedProfile *common.Profile) []string {
-	deviceNames := make([]string, 0)
-
+// mergeDeviceBindings registers each device of the group on the merged profile and
+// copies over the bindings that belong to it.
+func mergeDeviceBindings(deviceGUIDs []string, ctx *batchExportContext, mergedProfile *common.Profile) {
 	for _, deviceGUID := range deviceGUIDs {
 		device := ctx.devices[deviceGUID]
 		if device == nil {
 			continue
 		}
 
-		deviceNames = append(deviceNames, device.Name)
 		mergedProfile.Devices[deviceGUID] = device
 
 		// Add bindings for this device from all source profiles
@@ -300,8 +299,6 @@ func collectDeviceNames(deviceGUIDs []string, ctx *batchExportContext, mergedPro
 	if len(mergedProfile.Bindings) == 0 && ctx.moduleName == "" {
 		mergedProfile.Name = "External Bindings"
 	}
-
-	return deviceNames
 }
 
 // displayDeviceListCSVMode displays a simple list of devices for CSV-only mode
@@ -317,12 +314,7 @@ func displayDeviceListCSVMode(profiles []*common.Profile) {
 	}
 
 	// Display sorted list
-	names := make([]string, 0, len(deviceNames))
-	for name := range deviceNames {
-		names = append(names, name)
-	}
-
-	for _, name := range names {
+	for _, name := range slices.Sorted(maps.Keys(deviceNames)) {
 		fmt.Printf("  → %s\n", name)
 	}
 }
