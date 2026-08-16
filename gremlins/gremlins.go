@@ -55,14 +55,7 @@ func buildVJoyGUIDMap(config *common.Config) map[int]string {
 // AddBindings adds Gremlins bindings to an ExportDevice
 // fullProfile should contain all bindings including keyboard bindings from the module profile
 func addBindings(exportDevice *common.ExportDevice, fullProfile *common.Profile, config *common.Config) {
-	// Get Gremlins profile path based on sim type and module
-	var profilePath string
-	if exportDevice.Profile.SimType == common.DCSWorld && exportDevice.Profile.Module != "" {
-		profilePath = GetProfilePath(config, common.DCSWorld, exportDevice.Profile.Module)
-	} else {
-		profilePath = GetProfilePath(config, exportDevice.Profile.SimType, "")
-	}
-
+	profilePath := GetProfilePath(config, exportDevice.Profile.SimType)
 	if profilePath == "" {
 		return
 	}
@@ -385,19 +378,7 @@ func findVJoyAxisActionInSimulator(vJoyDevice int, vJoyAxis int, simBindings []c
 				// IL-2 uses axis letters (X, Y, Z, RX, RY, RZ, etc.)
 				axisID := strings.ToUpper(simBinding.InputID)
 
-				// Map vJoy axis numbers to letters (common mapping)
-				axisNumberToLetter := map[int]string{
-					1: "X",
-					2: "Y",
-					3: "Z",
-					4: "RX",
-					5: "RY",
-					6: "RZ",
-					7: "SLIDER_1",
-					8: "SLIDER_2",
-				}
-
-				expectedAxisLetter := axisNumberToLetter[vJoyAxis]
+				expectedAxisLetter, _ := AxisName(vJoyAxis)
 				if expectedAxisLetter != "" && axisID == expectedAxisLetter {
 					return simBinding.Description
 				}
@@ -462,37 +443,29 @@ func convertGremlinsToIL2Format(gremlinsKey string) string {
 	return strings.Join(il2Parts, "+")
 }
 
+// gremlinsPunctuation is what Gremlins calls the punctuation keys. The
+// modifiers and the named keys are not here: they live in common.IL2KeyName,
+// shared with the TARGET enricher, because the two used to disagree about Alt.
+var gremlinsPunctuation = map[string]string{
+	"LBracket":  "lbracket",
+	"RBracket":  "rbracket",
+	"Quote":     "quote",
+	"Semicolon": "semicolon",
+	"Comma":     "comma",
+	"Period":    "period",
+	"Slash":     "slash",
+	"Backslash": "backslash",
+	"Grave":     "grave",
+	"Minus":     "minus",
+	"Equals":    "equals",
+}
+
 // gremlinsKeyToIL2Key converts Gremlins key names to IL-2 key names
 func gremlinsKeyToIL2Key(key string) string {
-	// Map special Gremlins names to IL-2 names
-	keyMap := map[string]string{
-		"LShift":    "lshift",
-		"RShift":    "rshift",
-		"LCtrl":     "lcontrol",
-		"RCtrl":     "rcontrol",
-		"LAlt":      "lalt",
-		"RAlt":      "ralt",
-		"LWin":      "lwin",
-		"RWin":      "rwin",
-		"LBracket":  "lbracket",
-		"RBracket":  "rbracket",
-		"Quote":     "quote",
-		"Semicolon": "semicolon",
-		"Comma":     "comma",
-		"Period":    "period",
-		"Slash":     "slash",
-		"Backslash": "backslash",
-		"Grave":     "grave",
-		"Minus":     "minus",
-		"Equals":    "equals",
-		"Space":     "space",
-		"Enter":     "return",
-		"Backspace": "back",
-		"ESC":       "escape",
-		"CapsLock":  "capital",
+	if il2Key, found := common.IL2KeyName(key); found {
+		return il2Key
 	}
-
-	if il2Key, found := keyMap[key]; found {
+	if il2Key, found := gremlinsPunctuation[key]; found {
 		return il2Key
 	}
 
@@ -507,29 +480,19 @@ func LoadBindingsForDevice(deviceGUID string, config *common.Config) []*Binding 
 		return nil
 	}
 
-	// Check all simulators and modules for Gremlins profiles
+	// Simulators often share one Gremlins profile, so load each distinct file
+	// once rather than once per simulator that names it.
 	var allBindings []*Binding
+	seen := make(map[string]bool)
 
-	// Check IL-2 (Great Battles and Korea)
-	for _, simType := range []common.SimulationType{common.IL2Sturmovik, common.IL2Korea} {
-		il2Profile := GetProfilePath(config, simType, "")
-		if il2Profile != "" {
-			bindings := LoadBindings(il2Profile, deviceGUID)
-			allBindings = append(allBindings, bindings...)
+	for _, simType := range []common.SimulationType{common.DCSWorld, common.IL2Sturmovik, common.IL2Korea} {
+		profilePath := GetProfilePath(config, simType)
+		if profilePath == "" || seen[profilePath] {
+			continue
 		}
-	}
+		seen[profilePath] = true
 
-	// Check DCS modules
-	if config.Simulators != nil {
-		if dcsConfig := config.Simulators["dcs_world"]; dcsConfig != nil && dcsConfig.Modules != nil {
-			for moduleName := range dcsConfig.Modules {
-				moduleProfile := GetProfilePath(config, common.DCSWorld, moduleName)
-				if moduleProfile != "" {
-					bindings := LoadBindings(moduleProfile, deviceGUID)
-					allBindings = append(allBindings, bindings...)
-				}
-			}
-		}
+		allBindings = append(allBindings, LoadBindings(profilePath, deviceGUID)...)
 	}
 
 	return allBindings

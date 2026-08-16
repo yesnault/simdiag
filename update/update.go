@@ -1,8 +1,16 @@
+// Package update keeps SimDiag current from its GitHub releases.
+//
+// It is split in three so both front ends can use it. The CLI's
+// simdiag.exe update and the GUI's About tab both go through LatestRelease,
+// Compare and Apply, rather than each having their own idea of what a newer
+// version is.
 package update
 
 import (
 	"archive/zip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,189 +19,205 @@ import (
 	"strings"
 
 	"simdiag/common"
-
-	"github.com/google/go-github/v69/github"
 )
 
-// Run executes the self-update process
+const (
+	executableName = "simdiag.exe"
+
+	// backupName is the running executable, moved aside. Windows allows renaming
+	// a running image but not overwriting it, which is the whole trick.
+	backupName = "simdiag.old.exe"
+)
+
+// Run is the command line entry point: simdiag.exe update.
 func Run() error {
-	fmt.Println("SimDiag Self-Update")
-	fmt.Printf("Current version: %s\n", common.SimdiagVersion)
-	fmt.Println()
+	ctx := context.Background()
 
-	// Step 1: Cleanup old exe if exists
-	cleanupOldExecutable()
+	common.Printf("SimDiag Self-Update\n")
+	common.Printf("Current version: %s\n\n", common.SimdiagVersion)
 
-	// Step 2: Fetch latest release from GitHub
-	fmt.Println("Fetching latest release...")
-	release, err := fetchLatestRelease()
+	CleanupBackup()
+
+	common.Printf("Fetching latest release...\n")
+	release, err := LatestRelease(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to fetch latest release: %w", err)
 	}
 
-	latestVersion := strings.TrimPrefix(release.GetTagName(), "v")
-	fmt.Printf("Latest version: %s\n", latestVersion)
-	fmt.Println()
+	common.Printf("Latest version: %s\n\n", release.Version)
 
-	// Step 3: Compare versions
-	if common.SimdiagVersion != "dev" && common.SimdiagVersion == latestVersion {
-		fmt.Println("Already up to date!")
+	if !IsDevelopmentBuild(common.SimdiagVersion) && Compare(common.SimdiagVersion, release.Version) >= 0 {
+		common.Printf("Already up to date!\n")
 		return nil
 	}
 
-	// Step 4: Find Windows amd64 asset
-	asset, err := findWindowsAsset(release)
-	if err != nil {
+	if _, err := Apply(ctx, release); err != nil {
 		return err
 	}
 
-	// Step 5: Download the zip file
-	zipPath, err := downloadAsset(asset)
-	if err != nil {
-		return fmt.Errorf("failed to download update: %w", err)
-	}
-	defer os.Remove(zipPath) // Cleanup downloaded zip
-
-	// Step 6: Validate the zip
-	if err := validateZip(zipPath); err != nil {
-		return fmt.Errorf("invalid update package: %w", err)
-	}
-
-	// Step 7: Extract to staging directory
-	stagingDir, err := os.MkdirTemp("", "simdiag-update-*")
-	if err != nil {
-		return fmt.Errorf("failed to create staging directory: %w", err)
-	}
-	defer os.RemoveAll(stagingDir) // Cleanup staging dir
-
-	if err := extractZip(zipPath, stagingDir); err != nil {
-		return fmt.Errorf("failed to extract update: %w", err)
-	}
-
-	// Step 8: Replace the binary
-	fmt.Println("\nUpdating binary...")
-	if err := replaceBinary(stagingDir, common.SimdiagVersion, latestVersion); err != nil {
-		return fmt.Errorf("failed to update binary: %w", err)
-	}
-
-	// Step 9: Update templates
-	fmt.Println("\nUpdating templates...")
-	if err := updateTemplates(stagingDir); err != nil {
-		return fmt.Errorf("failed to update templates: %w", err)
-	}
-
-	fmt.Println("\nUpdate complete! Run './simdiag.exe -v' to verify.")
+	common.Printf("\nUpdate complete! Run './simdiag.exe -v' to verify.\n")
 	return nil
 }
 
-// cleanupOldExecutable removes any leftover .old.exe file from previous updates
-func cleanupOldExecutable() {
-	oldExe := "simdiag.old.exe"
-	if _, err := os.Stat(oldExe); err == nil {
-		os.Remove(oldExe) // Best effort, ignore errors
-	}
-}
-
-// fetchLatestRelease fetches the latest release from GitHub
-func fetchLatestRelease() (*github.RepositoryRelease, error) {
-	client := github.NewClient(nil)
-	ctx := context.Background()
-
-	release, resp, err := client.Repositories.GetLatestRelease(ctx, "yesnault", "simdiag")
+// Apply installs a release over the running executable and returns the path it
+// was installed at.
+//
+// That path is captured before the swap on purpose: once the running image has
+// been renamed, os.Executable can report the backup's name instead, and the
+// caller (the GUI's restart button) needs the path to launch.
+//
+// Progress goes through common.Printf, never fmt: the GUI captures a run by
+// redirecting common.SetOutput, while a fmt call lands on a standard output the
+// -H windowsgui binary does not have and is lost without trace.
+func Apply(ctx context.Context, release *Release) (string, error) {
+	currentExe, err := os.Executable()
 	if err != nil {
-		// Check for rate limit
-		if resp != nil && resp.StatusCode == 403 {
-			return nil, fmt.Errorf("GitHub API rate limit exceeded (60/hour without auth)")
-		}
-		return nil, err
+		return "", fmt.Errorf("failed to locate the current executable: %w", err)
+	}
+	if resolved, err := filepath.EvalSymlinks(currentExe); err == nil {
+		currentExe = resolved
 	}
 
-	return release, nil
-}
-
-// findWindowsAsset finds the Windows amd64 zip asset in the release
-func findWindowsAsset(release *github.RepositoryRelease) (*github.ReleaseAsset, error) {
-	for _, asset := range release.Assets {
-		name := asset.GetName()
-		if strings.Contains(name, "windows_amd64.zip") {
-			return asset, nil
-		}
+	common.Printf("Downloading %s...\n", release.AssetName)
+	zipPath, sum, err := downloadAsset(ctx, release)
+	if err != nil {
+		return "", fmt.Errorf("failed to download update: %w", err)
 	}
+	defer os.Remove(zipPath)
 
-	// No Windows asset found - list available assets
-	var assetNames []string
-	for _, asset := range release.Assets {
-		assetNames = append(assetNames, asset.GetName())
-	}
-
-	return nil, fmt.Errorf("no Windows amd64 asset found in release\nAvailable assets: %v", assetNames)
-}
-
-// downloadAsset downloads a release asset to a temp file with progress indication
-func downloadAsset(asset *github.ReleaseAsset) (string, error) {
-	url := asset.GetBrowserDownloadURL()
-	name := asset.GetName()
-
-	fmt.Printf("Downloading %s...\n", name)
-
-	// Create temp file
-	tmpFile, err := os.CreateTemp("", "simdiag-download-*.zip")
+	common.Printf("Verifying checksum...\n")
+	expected, err := fetchChecksum(ctx, release.ChecksumURL, release.AssetName)
 	if err != nil {
 		return "", err
+	}
+	if sum != expected {
+		return "", fmt.Errorf("checksum mismatch for %s: expected %s, got %s: the download was not installed",
+			release.AssetName, expected, sum)
+	}
+	common.Printf("  sha256 %s\n", sum)
+
+	if err := validateZip(zipPath); err != nil {
+		return "", fmt.Errorf("invalid update package: %w", err)
+	}
+
+	stagingDir, err := os.MkdirTemp("", "simdiag-update-*")
+	if err != nil {
+		return "", fmt.Errorf("failed to create staging directory: %w", err)
+	}
+	defer os.RemoveAll(stagingDir)
+
+	if err := extractZip(zipPath, stagingDir); err != nil {
+		return "", fmt.Errorf("failed to extract update: %w", err)
+	}
+
+	common.Printf("\nUpdating binary...\n")
+	if err := replaceBinary(stagingDir, currentExe); err != nil {
+		return "", fmt.Errorf("failed to update binary: %w", err)
+	}
+
+	common.Printf("  simdiag.exe updated (%s -> %s)\n", common.SimdiagVersion, release.Version)
+
+	// The base templates travel inside the binary and are written to disk by the
+	// graphical interface, so an update has nothing to copy: whatever is on disk
+	// belongs to the user, and the new exe carries its own copies.
+	return currentExe, nil
+}
+
+// CleanupBackup removes the executable a previous update moved aside.
+//
+// It is resolved next to the running executable, never against the working
+// directory: the GUI chdirs into the configuration's folder at startup
+// (gui/state.go, enterConfigDirectory), so a relative name would look for the
+// backup in the user's profile directory, and leave the real one behind.
+func CleanupBackup() {
+	path, err := backupPath()
+	if err != nil {
+		return
+	}
+	if _, err := os.Stat(path); err == nil {
+		os.Remove(path) // Best effort: it is only leftover.
+	}
+}
+
+// backupPath is where the running executable is moved aside.
+func backupPath() (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = resolved
+	}
+	return filepath.Join(filepath.Dir(exe), backupName), nil
+}
+
+// downloadAsset fetches the release archive, returning its path and the sha256
+// computed as it was written. Verifying costs no second read of the file.
+func downloadAsset(ctx context.Context, release *Release) (string, string, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, release.AssetURL, nil)
+	if err != nil {
+		return "", "", err
+	}
+
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		return "", "", err
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusOK {
+		return "", "", fmt.Errorf("download failed with status: %s", response.Status)
+	}
+
+	tmpFile, err := os.CreateTemp("", "simdiag-download-*.zip")
+	if err != nil {
+		return "", "", err
 	}
 	defer tmpFile.Close()
 
-	// Download
-	resp, err := http.Get(url)
-	if err != nil {
+	digest := sha256.New()
+	if err := copyWithProgress(io.MultiWriter(tmpFile, digest), response.Body, response.ContentLength); err != nil {
 		os.Remove(tmpFile.Name())
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		os.Remove(tmpFile.Name())
-		return "", fmt.Errorf("download failed with status: %s", resp.Status)
+		return "", "", err
 	}
 
-	// Copy with simple progress
-	size := resp.ContentLength
-	downloaded := int64(0)
+	return tmpFile.Name(), hex.EncodeToString(digest.Sum(nil)), nil
+}
+
+// copyWithProgress copies the body, reporting every 10% when the size is known.
+func copyWithProgress(dst io.Writer, src io.Reader, size int64) error {
+	buf := make([]byte, 32*1024)
+	written := int64(0)
 	lastPercent := -1
 
-	buf := make([]byte, 32*1024)
 	for {
-		n, err := resp.Body.Read(buf)
+		n, readErr := src.Read(buf)
 		if n > 0 {
-			if _, writeErr := tmpFile.Write(buf[:n]); writeErr != nil {
-				os.Remove(tmpFile.Name())
-				return "", writeErr
+			if _, err := dst.Write(buf[:n]); err != nil {
+				return err
 			}
-			downloaded += int64(n)
+			written += int64(n)
 
-			// Show progress
 			if size > 0 {
-				percent := int(downloaded * 100 / size)
+				percent := int(written * 100 / size)
 				if percent != lastPercent && percent%10 == 0 {
-					fmt.Printf("  %d%%\n", percent)
+					common.Printf("  %d%%\n", percent)
 					lastPercent = percent
 				}
 			}
 		}
-		if err == io.EOF {
-			break
+		if readErr == io.EOF {
+			return nil
 		}
-		if err != nil {
-			os.Remove(tmpFile.Name())
-			return "", err
+		if readErr != nil {
+			return readErr
 		}
 	}
-
-	fmt.Println("  100%")
-	return tmpFile.Name(), nil
 }
 
-// validateZip ensures the zip contains simdiag.exe
+// validateZip ensures the archive holds the executable where replaceBinary
+// looks for it: at the archive root, which is the flat layout goreleaser
+// produces (archives has no wrap_in_directory).
 func validateZip(zipPath string) error {
 	r, err := zip.OpenReader(zipPath)
 	if err != nil {
@@ -202,15 +226,15 @@ func validateZip(zipPath string) error {
 	defer r.Close()
 
 	for _, f := range r.File {
-		if strings.HasSuffix(f.Name, "simdiag.exe") {
+		if f.Name == executableName {
 			return nil
 		}
 	}
 
-	return fmt.Errorf("archive does not contain simdiag.exe")
+	return fmt.Errorf("archive does not contain %s at its root", executableName)
 }
 
-// extractZip extracts all files from the zip to the staging directory
+// extractZip extracts all files from the zip to the staging directory.
 func extractZip(zipPath, destDir string) error {
 	r, err := zip.OpenReader(zipPath)
 	if err != nil {
@@ -227,7 +251,7 @@ func extractZip(zipPath, destDir string) error {
 	return nil
 }
 
-// extractFile extracts a single file from the zip
+// extractFile extracts a single file from the zip.
 func extractFile(f *zip.File, destDir string) error {
 	path := filepath.Join(destDir, f.Name)
 
@@ -240,12 +264,10 @@ func extractFile(f *zip.File, destDir string) error {
 		return os.MkdirAll(path, os.ModePerm)
 	}
 
-	// Create parent directory if needed
 	if err := os.MkdirAll(filepath.Dir(path), os.ModePerm); err != nil {
 		return err
 	}
 
-	// Extract file
 	outFile, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
 	if err != nil {
 		return err
@@ -262,108 +284,35 @@ func extractFile(f *zip.File, destDir string) error {
 	return err
 }
 
-// replaceBinary replaces the current executable with the new one
-func replaceBinary(stagingDir, oldVersion, newVersion string) error {
-	// Find the new exe in staging
-	newExePath := filepath.Join(stagingDir, "simdiag.exe")
+// replaceBinary puts the new executable at currentExe, keeping the old one
+// alongside until the next run so a failure can be rolled back.
+func replaceBinary(stagingDir, currentExe string) error {
+	newExePath := filepath.Join(stagingDir, executableName)
 	if _, err := os.Stat(newExePath); os.IsNotExist(err) {
-		return fmt.Errorf("simdiag.exe not found in extracted files")
+		return fmt.Errorf("%s not found in extracted files", executableName)
 	}
 
-	// Get current exe path
-	currentExe, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("failed to get current executable path: %w", err)
-	}
+	oldExe := filepath.Join(filepath.Dir(currentExe), backupName)
 
-	oldExe := "simdiag.old.exe"
-
-	// Rename current exe to .old (Windows allows this even for running exe)
+	// Windows allows renaming a running image, which is what makes replacing the
+	// executable in place possible. Keeping the backup in the same directory also
+	// keeps the rename on one volume: os.Rename cannot cross volumes.
 	if err := os.Rename(currentExe, oldExe); err != nil {
 		return fmt.Errorf("failed to rename current executable (try running as administrator): %w", err)
 	}
 
-	// Copy new exe to current location
 	if err := copyFile(newExePath, currentExe); err != nil {
-		// Rollback: restore old exe
 		if renameErr := os.Rename(oldExe, currentExe); renameErr != nil {
 			return fmt.Errorf("failed to copy new executable and rollback failed: %w (rollback error: %v)", err, renameErr)
 		}
 		return fmt.Errorf("failed to copy new executable: %w", err)
 	}
 
-	fmt.Printf("  simdiag.exe updated (%s -> %s)\n", oldVersion, newVersion)
 	return nil
 }
 
-// updateTemplates extracts templates with conflict resolution
-func updateTemplates(stagingDir string) error {
-	templatesDir := "./templates"
-	stagingTemplatesDir := filepath.Join(stagingDir, "templates")
-
-	// Check if staging has templates
-	if _, err := os.Stat(stagingTemplatesDir); os.IsNotExist(err) {
-		fmt.Println("  No templates in update package")
-		return nil
-	}
-
-	// Create local templates directory if it doesn't exist
-	if err := os.MkdirAll(templatesDir, os.ModePerm); err != nil {
-		return fmt.Errorf("failed to create templates directory: %w", err)
-	}
-
-	// Walk through staging templates
-	return filepath.Walk(stagingTemplatesDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-
-		if info.IsDir() {
-			return nil
-		}
-
-		// Get relative path
-		relPath, err := filepath.Rel(stagingTemplatesDir, path)
-		if err != nil {
-			return err
-		}
-
-		destPath := filepath.Join(templatesDir, relPath)
-
-		// Check if file already exists
-		if _, err := os.Stat(destPath); os.IsNotExist(err) {
-			// New file - copy silently
-			if err := copyFile(path, destPath); err != nil {
-				return err
-			}
-			fmt.Printf("  [new] %s\n", relPath)
-		} else {
-			// Existing file - prompt user
-			fmt.Printf("  [exists] %s - Overwrite? (y/n): ", relPath)
-			var response string
-			if _, scanErr := fmt.Scanln(&response); scanErr != nil {
-				// Treat scan error as "no" (keep local version)
-				fmt.Println("    → kept local version")
-				return nil
-			}
-
-			if strings.ToLower(strings.TrimSpace(response)) == "y" {
-				if err := copyFile(path, destPath); err != nil {
-					return err
-				}
-				fmt.Println("    → updated")
-			} else {
-				fmt.Println("    → kept local version")
-			}
-		}
-
-		return nil
-	})
-}
-
-// copyFile copies a file from src to dst
+// copyFile copies a file from src to dst.
 func copyFile(src, dst string) error {
-	// Create parent directory if needed
 	if err := os.MkdirAll(filepath.Dir(dst), os.ModePerm); err != nil {
 		return err
 	}
@@ -384,7 +333,6 @@ func copyFile(src, dst string) error {
 		return err
 	}
 
-	// Copy permissions
 	srcInfo, err := os.Stat(src)
 	if err != nil {
 		return err

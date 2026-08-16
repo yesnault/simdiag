@@ -28,21 +28,14 @@ device_mappings:
       template_filepath: yesno_custom_button_box_small.svg
 simulators:
     dcs_world:
-        modules:
-            fa18c:
-                gremlins_profile_filepath: testdata/full_export/fixtures/gremlins/yesno.xml
-            m2000c:
-                gremlins_profile_filepath: testdata/full_export/fixtures/gremlins/yesno.xml
-            p47d:
-                gremlins_profile_filepath: testdata/full_export/fixtures/gremlins/yesno.xml
         dcs_path: testdata/full_export/fixtures/dcs
-        srs_path: testdata/full_export/fixtures/srs-dcs
+        gremlins_profile_filepath: testdata/full_export/fixtures/gremlins/yesno.xml
     il2_sturmovik:
         il2_input_path: testdata/full_export/fixtures/il2
-        srs_path: testdata/full_export/fixtures/srs-il2
         gremlins_profile_filepath: testdata/full_export/fixtures/gremlins/yesno.xml
     il2_korea:
         il2_input_path: testdata/full_export/fixtures/il2korea
-        srs_path: testdata/full_export/fixtures/srs-il2
         gremlins_profile_filepath: testdata/full_export/fixtures/gremlins/yesno.xml
 openkneeboard_profiles_filepath: testdata/full_export/fixtures/openkneeboard/Profiles.json
+dcs_srs_path: testdata/full_export/fixtures/srs-dcs
+il2_srs_path: testdata/full_export/fixtures/srs-il2

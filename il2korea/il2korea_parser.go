@@ -276,7 +276,7 @@ func lookupDevice(deviceNum string, devicesByID map[int]*common.Device, ref stri
 
 	device, exists := devicesByID[deviceID]
 	if !exists {
-		fmt.Printf("  [IL2 Korea] Warning: No device found for dev%d (reference '%s')\n", deviceID, ref)
+		common.Printf("  [IL2 Korea] Warning: No device found for dev%d (reference '%s')\n", deviceID, ref)
 		return nil
 	}
 

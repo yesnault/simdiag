@@ -1,19 +1,20 @@
-package common
+package workflow
 
 import (
+	"simdiag/common"
 	"sort"
 )
 
 // AssignModifierNumbers assigns sequential modifier numbers to all bindings based on their modifiers.
 // This should be called after all enrichments are done, before exporting to CSV/SVG.
-func AssignModifierNumbers(exportDevices []*ExportDevice) {
+func AssignModifierNumbers(exportDevices []*common.ExportDevice) {
 	modifiersByModule := collectModifiersByModule(exportDevices)
 	modifierNumbers := createModifierNumberMappings(modifiersByModule)
 	applyModifierNumbers(exportDevices, modifierNumbers)
 }
 
 // collectModifiersByModule collects all unique modifier keys grouped by module
-func collectModifiersByModule(exportDevices []*ExportDevice) map[string]map[string]bool {
+func collectModifiersByModule(exportDevices []*common.ExportDevice) map[string]map[string]bool {
 	modifiersByModule := make(map[string]map[string]bool)
 
 	for _, exportDevice := range exportDevices {
@@ -33,21 +34,21 @@ func collectModifiersByModule(exportDevices []*ExportDevice) map[string]map[stri
 }
 
 // getModuleName extracts the module name from an export device
-func getModuleName(exportDevice *ExportDevice) string {
-	if exportDevice.Profile.SimType == DCSWorld && exportDevice.Profile.Module != "" {
+func getModuleName(exportDevice *common.ExportDevice) string {
+	if exportDevice.Profile.SimType == common.DCSWorld && exportDevice.Profile.Module != "" {
 		return exportDevice.Profile.Module
 	}
-	if exportDevice.Profile.SimType == IL2Sturmovik {
+	if exportDevice.Profile.SimType == common.IL2Sturmovik {
 		return "il2"
 	}
-	if exportDevice.Profile.SimType == IL2Korea {
+	if exportDevice.Profile.SimType == common.IL2Korea {
 		return "il2-korea"
 	}
 	return ""
 }
 
 // collectModifierKeysFromBindings collects all modifier keys from bindings
-func collectModifierKeysFromBindings(bindings []Binding, modifierSet map[string]bool) {
+func collectModifierKeysFromBindings(bindings []common.Binding, modifierSet map[string]bool) {
 	for _, binding := range bindings {
 		// Collect keys from bindings that USE modifiers
 		if len(binding.Modifiers) > 0 {
@@ -93,7 +94,7 @@ func assignNumbersToModifiers(modifierSet map[string]bool) map[string]int {
 }
 
 // applyModifierNumbers assigns modifier numbers to all bindings
-func applyModifierNumbers(exportDevices []*ExportDevice, modifierNumbers map[string]map[string]int) {
+func applyModifierNumbers(exportDevices []*common.ExportDevice, modifierNumbers map[string]map[string]int) {
 	for _, exportDevice := range exportDevices {
 		module := getModuleName(exportDevice)
 		if module == "" {
@@ -110,7 +111,7 @@ func applyModifierNumbers(exportDevices []*ExportDevice, modifierNumbers map[str
 }
 
 // assignNumbersToProfileBindings assigns numbers to bindings in a profile
-func assignNumbersToProfileBindings(bindings []Binding, modMap map[string]int) {
+func assignNumbersToProfileBindings(bindings []common.Binding, modMap map[string]int) {
 	for i := range bindings {
 		binding := &bindings[i]
 

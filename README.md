@@ -1,31 +1,19 @@
 # SimDiag
 
-SimDiag is a Windows CLI tool that parses flight simulator controller configurations (DCS World, IL-2 Sturmovik Great Battles, IL-2 Korea) and generates visual SVG/PNG diagrams showing joystick and throttle button assignments.
+SimDiag reads the controller configuration of your flight simulators (DCS World, IL-2 Sturmovik Great Battles, IL-2 Korea) and draws a diagram of every joystick, throttle and button box, with each control labelled by the action it triggers.
+
+![Diagrams tab](doc/gui_diagrams.png)
 
 ## Purpose
 
-While experienced players typically memorize their button assignments, visual reference cards become valuable when:
+Experienced players memorize their bindings, but a visual reference card earns its place when:
+
 - Starting with a new aircraft or simulator
 - Returning to a simulation after an extended break
 - Learning complex modifier combinations
 - Sharing a configuration with another player
 
-SimDiag generates visual diagrams that display all configured bindings at a glance. VR users can import the PNG exports into OpenKneeboard to view these bindings in-game. The CSV export format provides advanced users with structured data for analysis or custom processing.
-
-### Relation to Joystick Diagrams
-
-SimDiag is inspired by [joystick-diagrams.com](https://joystick-diagrams.com/), with some differences:
-
-**SimDiag-specific features:**
-- OpenKneeboard profile integration
-- IL-2 Sturmovik Great Battles and IL-2 Korea support
-- SimpleRadio Standalone integration (both DCS and IL-2 versions)
-- Simplified template syntax (no `_modifier` suffix required in templates)
-
-**SimDiag limitation:**
-- Command-line interface only (no GUI)
-
-If you need a graphical interface and don't require OpenKneeboard or SRS integration, [joystick-diagrams.com](https://joystick-diagrams.com/) may be more suitable.
+SimDiag displays all configured bindings at a glance. VR users can import the PNG exports into OpenKneeboard to read them in flight. The CSV export gives structured data for analysis or custom processing.
 
 ## Features
 
@@ -34,17 +22,35 @@ If you need a graphical interface and don't require OpenKneeboard or SRS integra
 - **External Tool Integration**: Enriches bindings with Gremlins, TARGET, OpenKneeboard, and SimpleRadio Standalone (SRS) mappings
 - **Modifier Support**: Displays modifier button combinations with color-coded visual grouping
 - **CSV Export**: Exports bindings to CSV format for external analysis
-- **Batch Mode**: Non-interactive processing for CI/CD workflows
+- **Batch Mode**: Regenerates every diagram from the command line, without opening the interface
+
+## Installation
+
+Download the latest release from the [GitHub Releases](https://github.com/yesnault/simdiag/releases) page. The archive holds a single file, `simdiag.exe`.
+
+No installation required - just run the executable. The templates of the common controllers are inside the binary: on first run the graphical interface offers to write them next to your configuration file, and the diagrams are then ordinary files you can open and edit.
+
+## Getting Started
+
+Run `simdiag.exe` with no argument. The interface opens on six tabs, and the first three are the whole setup:
+
+**Configuration** - say where your simulators keep their files, and which optional tools you use alongside them. Each field explains what it is for, and validates as you type.
+
+![Configuration tab](doc/gui_configuration.png)
+
+DCS World keeps its controller configuration in `Saved Games\DCS`. IL-2 wants the `data\input` directory of its installation. Aircraft modules are never declared: SimDiag detects them under the DCS path and exports all of them.
+
+**Devices** - pair each controller with the SVG template that draws it. Templates are ranked by how many of that controller's actual bindings they can display. The one built for your hardware comes first:
+
+![Devices tab](doc/gui_devices.png)
+
+**Generate** - run the export, on everything or on a single DCS module, and watch the log as it goes.
+
+**Diagrams** then shows what came out, and opens the output folder. **Tips** covers running SimDiag from the command line, and **About** handles updates.
+
+The configuration is written to `mapping_config.yaml` beside the executable. The command line reads that file but never writes it: everything above happens in the interface.
 
 ## Examples
-
-### Command-Line Interface
-
-SimDiag operates through a command-line interface:
-
-![CLI Example](doc/cli_example.png)
-
-The interactive mode guides you through configuration setup, simulator selection, and device detection. For automation, use batch mode with `./simdiag.exe -b` to automatically export diagrams without prompts (requires existing configuration file).
 
 ### Output Examples
 
@@ -58,7 +64,7 @@ This example shows:
 - **Function labels**: Each control displays its assigned action from the simulator configuration
 - **Template-based layout**: Generated from SVG templates that can be customized for any controller
 
-The same binding can appear in multiple states depending on modifier combinations, allowing all available functions to be displayed on a single reference card.
+The same binding appears in several states depending on the modifier combination, and every available function fits on one reference card.
 
 ### TARGET Script Integration
 
@@ -72,7 +78,7 @@ This example demonstrates TARGET layer integration:
 - **Layer indicators**: The active layer (in this case, layer I) is shown alongside the bindings
 - **Cross-simulator support**: TARGET remapping works with DCS World, IL-2 Great Battles and IL-2 Korea configurations
 
-SimDiag parses TARGET scripts to understand the complete input chain from physical device → TARGET layer/remapping → simulator binding.
+SimDiag parses TARGET scripts to understand the complete input chain from physical device → TARGET layer/remapping → simulator binding. The keyboard layout is read from the profile itself. That is what makes an AZERTY author's keys match the simulator's bindings.
 
 ### Gremlins Integration
 
@@ -116,35 +122,63 @@ This example shows SRS bindings integration:
 
 SimDiag supports both DCS-SimpleRadio-Standalone and IL2-SimpleRadio-Standalone configurations.
 
-## Installation
+## Command Line
 
-Download the latest `simdiag.exe` from the [GitHub Releases](https://github.com/yesnault/simdiag/releases) page.
-
-No installation required - just run the executable.
-
-### Updating
-
-To update to the latest version:
+Once the configuration exists, SimDiag regenerates every diagram without opening the interface. The command line exports; it never writes the configuration.
 
 ```bash
-./simdiag.exe update
+./simdiag.exe [options]
 ```
 
-This command:
-- Downloads the latest release from GitHub
-- Updates the executable in place
-- Updates templates with interactive conflict resolution (prompts before overwriting local modifications)
+Run it from the directory holding your configuration file: paths inside the file are relative to it. The Tips tab writes a `run_simdiag_batch.bat` that takes care of this: double-click it and everything regenerates.
 
-## Configuration
+### Command-Line Options
 
-SimDiag uses a YAML configuration file (`mapping_config.yaml` by default). **You don't need to create this file manually** - simply run `./simdiag.exe` in interactive mode and it will guide you through the configuration process.
+- *(no option)* - Opens the graphical interface, on the configuration last used
+- `-b` - Batch mode: export everything the configuration declares
+- `-c FILE` - Configuration file path (default: `mapping_config.yaml`). On its own, opens the interface on that file
+- `-csv FILE` - Generate SVG/PNG from an existing CSV file
+- `-f FILTER` - Filter modules in batch mode (e.g., `"2000"` for M-2000C, `"il-2"` for IL-2)
+- `--no-svg` - Export CSV only, skip SVG generation
+- `-v` - Display version information
+- `update` - Download and install the latest release
 
-The configuration includes:
+### Examples
+
+**Export everything**:
+```bash
+./simdiag.exe -b
+```
+
+**Export a single module**:
+```bash
+./simdiag.exe -b -f 2000
+```
+
+**CSV export only** (skip SVG generation):
+```bash
+./simdiag.exe -b --no-svg
+```
+
+**Generate SVG from an existing CSV**:
+```bash
+./simdiag.exe -csv output/export.csv
+```
+
+**Use another configuration file**:
+```bash
+./simdiag.exe -c my_custom_config.yaml -b
+```
+
+## Configuration File
+
+The Configuration tab writes `mapping_config.yaml`; this section describes what ends up in it, for anyone who wants to read or version their own.
 
 - **Global settings**: Templates directory, output directory, device-to-template mappings
-- **DCS World**: Installation path, modules to export, Gremlins/SRS paths
-- **IL-2 Sturmovik Great Battles**: Input path, Gremlins/SRS paths
-- **IL-2 Korea**: Input path, Gremlins/SRS paths
+- **DCS World**: Installation path, Gremlins/TARGET profiles. Aircraft modules are not listed: they are detected from the installation path and all of them are exported.
+- **IL-2 Sturmovik Great Battles**: Input path, Gremlins/TARGET profiles
+- **IL-2 Korea**: Input path, Gremlins/TARGET profiles
+- **SimpleRadio (SRS)**: Two global paths, `dcs_srs_path` and `il2_srs_path`. DCS-SRS and IL2-SRS are separate installations, while both IL-2 titles use the same one.
 - **OpenKneeboard**: Profile path for additional bindings
 
 ### Example Configuration
@@ -168,37 +202,34 @@ device_mappings:
 simulators:
   dcs_world:
     dcs_path: C:\Users\YourName\Saved Games\DCS
-    srs_path: C:\Program Files\DCS-SimpleRadio-Standalone
-    modules:
-      fa18c:
-        gremlins_profile_filepath: C:\Path\To\Gremlins\profile.xml
-      m2000c:
-        gremlins_profile_filepath: C:\Path\To\Gremlins\profile.xml
+    gremlins_profile_filepath: C:\Path\To\Gremlins\profile.xml
 
   il2_sturmovik:
     il2_input_path: C:\Program Files\IL-2 Sturmovik Great Battles\data\input
-    srs_path: C:\Program Files\IL2-SimpleRadio-Standalone
     gremlins_profile_filepath: C:\Path\To\Gremlins\profile.xml
 
   il2_korea:
     il2_input_path: C:\Program Files\IL2Series\game\data\Input
-    srs_path: C:\Program Files\IL2-SimpleRadio-Standalone
     gremlins_profile_filepath: C:\Path\To\Gremlins\profile.xml
 
 openkneeboard_profiles_filepath: C:\Users\YourName\AppData\Local\OpenKneeboard\Settings\Profiles.json
+
+# One SimpleRadio installation per game family: both IL-2 titles share IL2-SRS.
+dcs_srs_path: C:\Program Files\DCS-SimpleRadio-Standalone
+il2_srs_path: C:\Program Files\IL2-SimpleRadio-Standalone
 ```
 
 ## Templates
 
-SimDiag includes a few built-in SVG templates for common controllers (WINWING, Thrustmaster, etc.). However, you can create or modify templates to match your specific hardware.
+SimDiag ships the SVG templates of the common controllers (WINWING, Thrustmaster) inside the binary. When the templates directory does not have them, the Configuration tab offers to install them. **A file already on disk is never overwritten**, so a template you have edited stays yours. You can of course create or modify templates to match your own hardware.
 
 ### Creating Custom Templates
 
-**It is strongly recommended to use [draw.io](https://www.drawio.com/) (diagrams.net) for creating templates.** Before creating your own template, **examine the existing templates** in the `templates/` directory to understand the structure, placeholder naming conventions, and layout best practices.
+**It is strongly recommended to use [draw.io](https://www.drawio.com/) (diagrams.net) for creating templates.** Install the base templates from the Configuration tab first, then **examine them** to understand the structure, placeholder naming conventions, and layout best practices.
 
 Templates are SVG files with placeholder text that gets replaced with binding information. To create a custom template:
 
-1. **Review existing templates** - Open templates from the `templates/` directory in draw.io to see how they're structured
+1. **Review existing templates** - Open the installed templates in draw.io to see how they're structured
 2. **Use draw.io** to create your controller diagram:
    - Draw your controller layout (buttons, axes, switches, etc.)
    - Add text boxes for each control you want to display bindings for
@@ -208,62 +239,10 @@ Templates are SVG files with placeholder text that gets replaced with binding in
    - POV hats: `POV_1_U`, `POV_1_D`, `POV_1_L`, `POV_1_R`
    - Modifier slots: `Button_N_Modifier_M` (N = button number, M = 1-10 for color-coded modifiers)
 4. **Export as SVG** from draw.io (File → Export as → SVG)
-5. **Save to** `templates/` directory (or subdirectory like `templates/base/`)
-6. **Run `./simdiag.exe`** in interactive mode to associate the template with your device
+5. **Save to** the templates directory (or a subdirectory like `templates/base/`)
+6. **Open the Devices tab** and assign the template to your controller
 
 **Tip**: The existing templates demonstrate proper spacing, text sizing, and layout organization. Use them as a reference to ensure your custom templates work correctly with SimDiag's replacement engine.
-
-## Usage
-
-```bash
-./simdiag.exe [options]
-```
-
-### Command-Line Options
-
-- `-b` - Batch mode (non-interactive, requires existing configuration)
-- `-v` - Display version information
-- `-c FILE` - Specify configuration file path (default: `mapping_config.yaml`)
-- `-csv FILE` - Generate SVG/PNG from existing CSV file
-- `-f FILTER` - Filter modules in batch mode (e.g., `"2000"` for M-2000C, `"il2"` for IL-2)
-- `--no-svg` - Export CSV only, skip SVG generation
-
-### Examples
-
-**Update to latest version**:
-```bash
-./simdiag.exe update
-```
-
-**Interactive mode** (prompts for configuration):
-```bash
-./simdiag.exe
-```
-
-**Batch mode** (use existing configuration):
-```bash
-./simdiag.exe -b
-```
-
-**Batch mode with filter** (export only M-2000C module):
-```bash
-./simdiag.exe -b -f 2000
-```
-
-**CSV export only** (skip SVG generation):
-```bash
-./simdiag.exe -b --no-svg
-```
-
-**Generate SVG from existing CSV**:
-```bash
-./simdiag.exe -csv output/export.csv
-```
-
-**Custom configuration file**:
-```bash
-./simdiag.exe -c my_custom_config.yaml -b
-```
 
 ## Output Structure
 
@@ -274,8 +253,9 @@ output/
 ├── export.csv                  # Unified CSV export of all bindings
 ├── dcs-m2000c/                 # DCS M-2000C module diagrams
 │   ├── warthog-stick.svg
-│   ├── warthog-stick.png
-│   └── ...
+│   ├── ...
+│   └── png/                    # PNG exports, when draw.io is configured
+│       └── warthog-stick.png
 ├── dcs-fa18c_hornet/           # DCS FA-18C module diagrams
 │   └── ...
 ├── il2/                        # IL-2 Sturmovik Great Battles diagrams
@@ -283,6 +263,8 @@ output/
 └── il2-korea/                  # IL-2 Korea diagrams
     └── ...
 ```
+
+The Diagrams tab shows the PNG whenever one exists: the generated SVG carries its labels in a form only draw.io re-parses, so a browser would show the markup rather than the text.
 
 ### CSV Format
 
@@ -302,96 +284,28 @@ The CSV export contains 13 columns:
 - `Template Key` - SVG template key (Button_1, AXIS_X, etc.)
 - `Template` - Template filename
 
-## Development
-
-### Prerequisites
-
-- Go 1.25 or later
-- [GoReleaser](https://goreleaser.com/) (automatically installed by build scripts)
-- [golangci-lint](https://golangci-lint.run/) (for linting)
-
-### Building from Source
-
-```bash
-make build
-```
-
-The build process:
-1. Runs `golangci-lint` to check code quality
-2. Uses GoReleaser to build with version information
-3. Copies the binary to the project root
-
-### Testing
-
-**Run all tests**:
-```bash
-make test
-```
-
-**Unit tests only**:
-```bash
-make unit-test
-```
-
-**Integration tests only**:
-```bash
-make integration-test
-```
-
-**Update expected CSV after intentional changes**:
-```bash
-make update-expected
-```
-
-### Cleaning Build Artifacts
-
-```bash
-make clean
-```
-
-### Project Structure
-
-```
-simdiag/
-├── cmd/simdiag/        # Main entry point
-├── common/             # Shared types, config, utilities
-├── dcs/                # DCS World parser
-├── il2/                # IL-2 Sturmovik Great Battles parser
-├── il2korea/           # IL-2 Korea parser
-├── gremlins/           # Gremlins binding enricher
-├── target/             # TARGET binding enricher
-├── openkneeboard/      # OpenKneeboard binding enricher
-├── srs/                # SimpleRadio Standalone enricher
-├── csv/                # CSV export logic
-├── svg/                # SVG template processing
-├── workflow/           # Pipeline orchestration
-├── templates/          # SVG device templates
-└── tests/              # Integration tests
-```
-
 ## Reporting Issues
 
-When reporting a bug, the required files depend on where the issue occurs:
+Submit issues at: https://github.com/yesnault/simdiag/issues
+
+The CSV is the intermediate every diagram is drawn from. Where a binding goes wrong tells you what to attach.
 
 ### Bug Visible in CSV Export
 
-If the bug appears in the generated CSV file (incorrect bindings, missing entries, wrong device mapping, etc.), provide:
-- All simulator configuration files needed to reproduce the issue
-- Your `mapping_config.yaml` configuration file
-- Any external tool configurations (Gremlins profiles, TARGET scripts, OpenKneeboard profiles, SRS settings)
-
-This allows reproduction of the parsing and enrichment pipeline.
+Run `./simdiag.exe -b --no-svg` and attach:
+- The generated `export.csv`
+- Your `mapping_config.yaml`
+- The simulator configuration files for the affected module
+- Any external tool configuration involved (Gremlins profile, TARGET script, OpenKneeboard profile, SRS settings)
 
 ### Bug in SVG/PNG Export Only
 
-If the CSV file is correct but the SVG or PNG output is incorrect (wrong layout, missing buttons, incorrect text replacement, etc.), provide:
-- The CSV file that was used as input
-- The generated PNG file showing the issue
-- The template file used (if custom)
+If the binding is correct in the CSV but wrong on the diagram, attach:
+- The generated `export.csv`
+- The SVG or PNG showing the problem
+- The template file used, if it is a custom one
 
 This isolates the issue to the SVG generation stage.
-
-Submit issues at: https://github.com/yesnault/simdiag/issues
 
 ## License
 

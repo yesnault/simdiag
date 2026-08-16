@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"simdiag/common"
+	"strconv"
 	"strings"
 )
 
@@ -502,7 +503,7 @@ func LoadBindings(profilePath, deviceGUID string) []*Binding {
 
 	allBindings, err := ParseProfile(profilePath)
 	if err != nil {
-		fmt.Printf("⚠ Error parsing Gremlins profile: %v\n", err)
+		common.Printf("⚠ Error parsing Gremlins profile: %v\n", err)
 		return nil
 	}
 
@@ -512,15 +513,6 @@ func LoadBindings(profilePath, deviceGUID string) []*Binding {
 
 	deviceBindings := make([]*Binding, 0)
 	for _, binding := range allBindings {
-		// Try exact match first
-		if strings.EqualFold(binding.DeviceGUID, normalizedDeviceGUID) {
-			deviceBindings = append(deviceBindings, binding)
-			continue
-		}
-
-		// Try partial match for IL-2 (compare first 3 parts of GUID)
-		// IL-2 format: ee6f1c30-3f2e-11f0-0000545345440180
-		// Gremlins format: {EE6F1C30-3F2E-11F0-8001-444553540000}
 		if common.MatchGUIDPartial(binding.DeviceGUID, normalizedDeviceGUID) {
 			deviceBindings = append(deviceBindings, binding)
 		}
@@ -528,36 +520,50 @@ func LoadBindings(profilePath, deviceGUID string) []*Binding {
 	return deviceBindings
 }
 
+// axisNames maps a Gremlins axis number to the standard name DCS and IL-2 use.
+//
+// Axes 4 and 5 are swapped relative to the obvious order; that is what WINWING
+// hardware reports and it is deliberate. The matcher in gremlins.go used to
+// carry its own copy of this table with 4 and 5 the other way round, so the
+// parser and the matcher of the same package disagreed about which axis a
+// binding was on.
+var axisNames = map[int]string{
+	1: "X",
+	2: "Y",
+	3: "Z",
+	4: "RY", // WINWING: axis 4 = RY (mouse Y movement)
+	5: "RX", // WINWING: axis 5 = RX (inverted from standard)
+	6: "RZ",
+	7: "SLIDER_1",
+	8: "SLIDER_2",
+}
+
+// AxisName returns the standard name of a Gremlins axis number, and whether the
+// number is one this mapping knows.
+func AxisName(axisNumber int) (string, bool) {
+	name, found := axisNames[axisNumber]
+	return name, found
+}
+
 // convertAxisIDToName converts Gremlins numeric axis ID to standard axis name
 // Used to match DCS axis naming (X, Y, Z, RX, RY, RZ, SLIDER_1, SLIDER_2)
-// Note: Axis mapping can vary by hardware. This uses WINWING/common joystick mapping.
 func convertAxisIDToName(axisID string) string {
-	// Map Gremlins axis numbers to standard axis names
-	// Based on WINWING Orion joystick mapping
-	axisMap := map[string]string{
-		"1": "X",
-		"2": "Y",
-		"3": "Z",
-		"4": "RY", // WINWING: axis 4 = RY (mouse Y movement)
-		"5": "RX", // WINWING: axis 5 = RX (inverted from standard)
-		"6": "RZ",
-		"7": "SLIDER_1",
-		"8": "SLIDER_2",
+	number, err := strconv.Atoi(axisID)
+	if err != nil {
+		return axisID
 	}
-
-	if name, exists := axisMap[axisID]; exists {
+	if name, found := AxisName(number); found {
 		return name
 	}
 	// Return as-is if not in map (for any custom axes)
 	return axisID
 }
 
-// GetProfilePath returns the Gremlins profile path for the current context
-func GetProfilePath(config *common.Config, simType common.SimulationType, moduleName string) string {
-	if simType == common.DCSWorld && moduleName != "" {
-		moduleConfig := config.GetModuleConfig(simType, moduleName)
-		return moduleConfig.GremlinsProfileFilepath
-	}
-	simConfig := config.GetSimulatorConfig(simType)
-	return simConfig.GremlinsProfileFilepath
+// GetProfilePath returns the Gremlins profile path configured for a simulator.
+//
+// It takes no module: a pilot runs one Gremlins profile for the whole game, and
+// the per-module paths that used to override this were only ever set to the same
+// value repeated once per aircraft.
+func GetProfilePath(config *common.Config, simType common.SimulationType) string {
+	return config.GremlinsProfilePath(simType)
 }

@@ -5,6 +5,30 @@ import (
 	"testing"
 )
 
+// TestGetProfilePath: a TARGET script is written for a physical HOTAS, so it is
+// configured once per simulator and applies to every DCS module.
+func TestGetProfilePath(t *testing.T) {
+	const dcsProfile = `C:\target\all.tmc`
+
+	config := &common.Config{Simulators: map[string]*common.SimulatorConfig{
+		"dcs_world":     {DCSPath: `C:\DCS`, TargetProfileFilepath: dcsProfile},
+		"il2_sturmovik": {IL2InputPath: `C:\IL-2`},
+	}}
+
+	if got := GetProfilePath(config, common.DCSWorld); got != dcsProfile {
+		t.Errorf("GetProfilePath(DCS) = %q, want %q", got, dcsProfile)
+	}
+	if got := GetProfilePath(config, common.IL2Sturmovik); got != "" {
+		t.Errorf("GetProfilePath(IL-2) = %q, want empty", got)
+	}
+	if got := GetProfilePath(config, common.IL2Korea); got != "" {
+		t.Errorf("GetProfilePath(unconfigured) = %q, want empty", got)
+	}
+	if got := GetProfilePath(nil, common.DCSWorld); got != "" {
+		t.Errorf("GetProfilePath(nil config) = %q, want empty", got)
+	}
+}
+
 // TestParseButtonID tests the button ID parsing logic
 func TestParseButtonID(t *testing.T) {
 	tests := []struct {
@@ -311,14 +335,18 @@ func TestIL2KeyToStandard(t *testing.T) {
 			il2Key: "rcontrol",
 			want:   "RCtrl",
 		},
+		// IL-2 writes lmenu and rmenu for the Alt keys, never lalt or ralt: the
+		// integration fixture holds 29 key_lmenu and 35 key_rmenu and no
+		// key_lalt at all. This test used to assert the names the Gremlins
+		// enricher had invented, which is how the two tables drifted apart.
 		{
 			name:   "left alt",
-			il2Key: "lalt",
+			il2Key: "lmenu",
 			want:   "LAlt",
 		},
 		{
 			name:   "right alt",
-			il2Key: "ralt",
+			il2Key: "rmenu",
 			want:   "RAlt",
 		},
 		// Special keys

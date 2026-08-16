@@ -1,0 +1,1377 @@
+/* Neutral graphite. Every grey has R = G = B: the shell carries no hue at all,
+   so it cannot drift towards a tint as this file is edited. */
+:root {
+  --bg: #1c1c1c;
+  --bg-raised: #242424;
+  --bg-sunken: #151515;
+  --border: #383838;
+  --text: #e8e8e8;
+  --text-dim: #9a9a9a;
+
+  /* The interactive highlight is a light grey, not a colour: it fills the
+     primary button (with --accent-fg on top), underlines the active tab and
+     draws the focus rings. */
+  --accent: #c9c9c9;
+  --accent-hover: #e0e0e0;
+  --accent-fg: #1c1c1c;
+  --accent-subtle: #6e6e6e;
+
+  /* State colours, muted so they read as ink rather than as traffic lights.
+     All three clear 4.5:1 against --bg and --bg-raised. */
+  --ok: #7d9b6a;
+  --warn: #b08d57;
+  --warn-bg: rgba(176, 141, 87, 0.12);
+  --error: #c9857a;
+
+  --overlay: rgba(14, 14, 14, 0.97);
+  --canvas: #fff; /* draw.io exports are drawn on a light canvas */
+
+  --radius: 6px;
+
+  /* Native <select> popups, scrollbars and checkboxes follow this. Without it
+     they render light inside the dark window. */
+  color-scheme: dark;
+}
+
+/* No colour literal belongs below this line: everything resolves to a token
+   above, so the palette can be replaced by editing one block. */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--text);
+  /* Inherited by the checkboxes, which would otherwise keep Chromium's blue. */
+  accent-color: var(--accent);
+  font: 14px/1.5 "Segoe UI", system-ui, sans-serif;
+  overflow: hidden;
+  /* The whole window is chrome, not a document: never rubber-band it. */
+  user-select: none;
+}
+
+/* ---------- header ---------- */
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 16px;
+  background: var(--bg-raised);
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.brand-mark {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.brand-version {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* The configuration in use sits in the header, not in the Configuration tab:
+   it decides what every tab shows, so it has to stay visible from all of them. */
+.config-picker {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.config-path-label {
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  flex: none;
+}
+
+.config-current {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 46vw;
+  appearance: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: none;
+  color: inherit;
+  font: inherit;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+
+.config-current:hover,
+.config-current[aria-expanded="true"] {
+  border-color: var(--border);
+  background: var(--bg-sunken);
+}
+
+#config-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl; /* keep the filename visible when the path is long */
+  text-align: left;
+}
+
+.caret {
+  flex: none;
+  font-size: 10px;
+}
+
+/* Two buttons rather than a dropdown: with exactly two languages, the choice and
+   the current state read at a glance. */
+.language-picker {
+  display: flex;
+  gap: 4px;
+  flex: none;
+  margin-left: 4px;
+}
+
+.lang {
+  padding: 4px 8px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+}
+
+.lang[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+}
+
+.config-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  min-width: 280px;
+  max-width: 60vw;
+  padding: 6px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.45);
+}
+
+.config-menu[hidden] {
+  display: none;
+}
+
+.config-menu-title {
+  margin: 4px 8px 6px;
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+}
+
+.config-menu-separator {
+  margin: 6px 0;
+  border-top: 1px solid var(--border);
+}
+
+.config-menu-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  width: 100%;
+  appearance: none;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+
+.config-menu-item:hover:not(:disabled) {
+  background: var(--bg-sunken);
+}
+
+.config-menu-item.is-missing {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.config-menu-action {
+  font-size: 13px;
+}
+
+.config-menu-name {
+  font-size: 13px;
+}
+
+.config-menu-dir,
+.config-menu-note {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+/* ---------- confirmation ---------- */
+
+.confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--overlay);
+}
+
+.confirm-backdrop[hidden] {
+  display: none;
+}
+
+.confirm-box {
+  max-width: 420px;
+  padding: 20px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.confirm-box p {
+  margin: 0 0 18px;
+}
+
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+/* ---------- tabs ---------- */
+
+.tabs {
+  display: flex;
+  gap: 2px;
+  padding: 0 12px;
+  background: var(--bg-raised);
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+
+.tab {
+  appearance: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--text-dim);
+  font: inherit;
+  padding: 9px 14px;
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s;
+}
+
+.tab:hover {
+  color: var(--text);
+}
+
+.tab[aria-selected="true"] {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+.tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* A new version exists. The dot rides on the tab so it is seen without the tab
+   being opened, and it is the only warn-coloured thing in the chrome. */
+.tab.has-badge::after {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: var(--warn);
+  vertical-align: middle;
+}
+
+/* ---------- panels ---------- */
+
+.panels {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+.panel {
+  display: none;
+  height: 100%;
+  overflow: auto;
+  padding: 20px;
+}
+
+.panel.is-active {
+  display: block;
+}
+
+.placeholder {
+  max-width: 560px;
+  margin: 48px auto;
+  padding: 28px;
+  background: var(--bg-sunken);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  text-align: center;
+}
+
+.placeholder h2 {
+  margin: 0 0 8px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.placeholder p {
+  margin: 0;
+  color: var(--text-dim);
+}
+
+.placeholder .hint {
+  margin-top: 14px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+}
+
+/* ---------- panel toolbar ---------- */
+
+.panel-toolbar {
+  position: sticky;
+  top: -20px; /* cancels the panel's own padding while scrolling */
+  z-index: 2;
+  margin: -20px -20px 18px;
+  padding: 12px 20px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+
+/* Capped to the form width so the buttons line up with the fields instead of
+   drifting to the far edge of a wide window. */
+.toolbar-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  max-width: 940px;
+  margin: 0 auto;
+}
+
+/* margin-left rather than space-between: the dirty marker is removed from the
+   layout when hidden, which would otherwise pull the buttons to the left. */
+.toolbar-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.dirty-marker {
+  font-size: 12px;
+  color: var(--warn);
+}
+
+.dirty-marker::before {
+  content: "●";
+  margin-right: 6px;
+}
+
+.btn {
+  appearance: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  color: var(--text);
+  font: inherit;
+  padding: 6px 14px;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.btn:hover:not(:disabled) {
+  border-color: var(--accent-subtle);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* A light fill with dark text, the way a native default button reads. The
+   highlight carries no hue, so the emphasis comes from contrast alone. */
+.btn-primary:not(:disabled) {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+/* ---------- configuration form ---------- */
+
+.config-form {
+  max-width: 940px;
+  margin: 0 auto;
+  padding-bottom: 40px;
+}
+
+.config-section {
+  margin-bottom: 26px;
+  padding: 18px 20px 6px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.config-section-header {
+  margin-bottom: 16px;
+}
+
+.config-section-header h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.config-section-header p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.config-section-note {
+  margin-top: 6px !important;
+  color: var(--text-dim);
+}
+
+/* One simulator inside a section covering several: the two IL-2 titles are
+   configured separately but share the SimpleRadio path shown after them. */
+.config-subsection {
+  margin-bottom: 18px;
+  padding-left: 14px;
+  border-left: 2px solid var(--border);
+}
+
+.config-subsection-title {
+  margin: 0 0 12px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+}
+
+.field {
+  margin-bottom: 16px;
+}
+
+.field-label-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+
+.field-label {
+  font-size: 12px;
+  color: var(--text);
+}
+
+/* The status dot lives on the label, so severity reads at a glance. Only path
+   fields get one: a dropdown has nothing to resolve on disk. */
+.field-path .field-label::before {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 7px;
+  border-radius: 50%;
+  background: var(--border);
+  vertical-align: middle;
+}
+
+.field-path[data-severity="ok"] .field-label::before {
+  background: var(--ok);
+}
+
+.field-path[data-severity="warn"] .field-label::before {
+  background: var(--warn);
+}
+
+.field-path[data-severity="error"] .field-label::before {
+  background: var(--error);
+}
+
+.field-hint {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0 5px;
+}
+
+.field-row {
+  display: flex;
+  gap: 8px;
+}
+
+.field-input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 10px;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font: inherit;
+  user-select: text;
+}
+
+.field-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+select.field-input {
+  flex: 0 0 200px;
+  cursor: pointer;
+}
+
+.btn-browse {
+  flex: none;
+}
+
+/* What the field is for. Permanent and never recoloured, which is what keeps it
+   apart from .field-detail below it: that one is the status of what was typed
+   and takes the severity colour. */
+.field-help {
+  margin: 6px 0 0;
+  max-width: 68ch;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-dim);
+  user-select: text;
+}
+
+.field-detail {
+  margin: 5px 0 0;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.field[data-severity="error"] .field-detail {
+  color: var(--error);
+}
+
+.field[data-severity="warn"] .field-detail {
+  color: var(--warn);
+}
+
+/* Underlined at rest, not only on hover: with a grey highlight the colour alone
+   no longer says "clickable". */
+.field-suggestion {
+  appearance: none;
+  border: 0;
+  background: none;
+  padding: 5px 0 0;
+  font: inherit;
+  font-size: 12px;
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-color: var(--accent-subtle);
+  text-underline-offset: 2px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.field-suggestion:hover {
+  text-decoration-color: var(--accent);
+}
+
+/* A link is a button here: a real href would navigate the application window
+   away from the interface. The arrow says the page opens outside SimDiag. */
+.field-link {
+  appearance: none;
+  border: 0;
+  background: none;
+  padding: 6px 0 0;
+  font: inherit;
+  font-size: 12px;
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-color: var(--accent-subtle);
+  text-underline-offset: 2px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.field-link::after {
+  content: " ↗";
+  text-decoration: none;
+}
+
+.field-link:hover {
+  text-decoration-color: var(--accent);
+}
+
+/* ---------- devices tab ---------- */
+
+.devices-body {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding-bottom: 40px;
+}
+
+.toolbar-note {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.warning-banner {
+  margin: 0 0 12px;
+  padding: 9px 12px;
+  background: var(--warn-bg);
+  border: 1px solid var(--warn);
+  border-radius: var(--radius);
+  color: var(--warn);
+  font-size: 12px;
+}
+
+/* A banner that offers to do something about what it reports, rather than only
+   stating it. The button sits at the end of the line it belongs to. */
+.banner-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  max-width: 940px;
+  margin: 0 auto 20px;
+}
+
+.banner-action .btn {
+  flex: none;
+  color: var(--text);
+}
+
+.empty-note {
+  margin: 32px 0;
+  text-align: center;
+  color: var(--text-dim);
+}
+
+.device-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 26px;
+}
+
+.device-row {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.device-row.is-virtual {
+  opacity: 0.72;
+}
+
+.device-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 260px) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 16px;
+}
+
+.device-identity {
+  min-width: 0;
+}
+
+.device-name {
+  display: block;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.device-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 5px;
+}
+
+.badge {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 5px;
+  white-space: nowrap;
+}
+
+.badge-muted {
+  opacity: 0.75;
+}
+
+.device-assignment {
+  min-width: 0;
+  font-size: 12px;
+}
+
+.assignment-template {
+  color: var(--ok);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+}
+
+.assignment-none {
+  color: var(--warn);
+}
+
+.assignment-skipped {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.device-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.btn-small {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+/* ---------- template picker ---------- */
+
+.template-picker {
+  border-top: 1px solid var(--border);
+  background: var(--bg-sunken);
+  padding: 12px 16px 14px;
+}
+
+.picker-note {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.template-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 240px) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+}
+
+.template-row:hover {
+  background: var(--bg-raised);
+}
+
+.template-row.is-current {
+  background: var(--bg-raised);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.template-main {
+  min-width: 0;
+}
+
+.template-name {
+  display: block;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.template-keys {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.fit-bar {
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.fit-fill {
+  height: 100%;
+  border-radius: 2px;
+}
+
+.fit-fill.is-good {
+  background: var(--ok);
+}
+
+.fit-fill.is-poor {
+  background: var(--warn);
+}
+
+.template-fit-label {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.template-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.target-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.target-label {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.target-input {
+  flex: 0 0 110px;
+}
+
+/* ---------- generate tab ---------- */
+
+.inline-field,
+.inline-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.inline-field select {
+  flex: 0 0 320px;
+  padding: 5px 8px;
+}
+
+.inline-check {
+  cursor: pointer;
+}
+
+.generate-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  height: calc(100% - 70px);
+  max-width: 1040px;
+  margin: 0 auto;
+}
+
+.export-log {
+  flex: 1;
+  min-height: 200px;
+  margin: 0;
+  padding: 12px 14px;
+  overflow: auto;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font: 12px/1.55 "Cascadia Mono", Consolas, monospace;
+  color: var(--text-dim);
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+}
+
+.summary-box {
+  padding: 14px 16px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--ok);
+  border-radius: var(--radius);
+}
+
+.summary-box.is-cancelled {
+  border-left-color: var(--warn);
+}
+
+.summary-stats {
+  display: flex;
+  gap: 28px;
+  margin-bottom: 12px;
+}
+
+.summary-stat {
+  display: flex;
+  flex-direction: column;
+}
+
+.summary-value {
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.summary-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+}
+
+.summary-line {
+  margin: 3px 0;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.summary-error {
+  margin: 3px 0;
+  font-size: 12px;
+  color: var(--error);
+}
+
+.summary-warning {
+  margin: 3px 0;
+  font-size: 12px;
+  color: var(--warn);
+}
+
+.mono {
+  font-family: "Cascadia Mono", Consolas, monospace;
+  user-select: text;
+}
+
+.validation-box {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.validation-box summary {
+  cursor: pointer;
+  color: var(--warn);
+}
+
+.validation-table {
+  width: 100%;
+  margin-top: 10px;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.validation-table th {
+  text-align: left;
+  padding: 4px 8px 4px 0;
+  color: var(--text-dim);
+  font-weight: 500;
+  border-bottom: 1px solid var(--border);
+}
+
+.validation-table td {
+  padding: 3px 8px 3px 0;
+  color: var(--text-dim);
+  vertical-align: top;
+}
+
+/* ---------- diagrams tab ---------- */
+
+.diagrams-body {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding-bottom: 40px;
+}
+
+.diagram-group {
+  margin-bottom: 30px;
+}
+
+.diagram-group-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.diagram-group-header h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.diagram-count {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-right: auto;
+}
+
+.diagram-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 14px;
+}
+
+.diagram-card {
+  appearance: none;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.12s;
+}
+
+.diagram-card:hover {
+  border-color: var(--accent);
+}
+
+/* draw.io exports are drawn on a light canvas, so the thumbnail keeps a white
+   backdrop even inside the dark shell. */
+.diagram-thumb {
+  height: 150px;
+  background: var(--canvas);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.diagram-thumb img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.diagram-meta {
+  padding: 8px 10px;
+  min-width: 0;
+}
+
+.diagram-name {
+  display: block;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diagram-detail {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+/* ---------- tips tab ---------- */
+
+.tips-body {
+  max-width: 940px;
+  margin: 0 auto;
+  padding-bottom: 40px;
+}
+
+.tips-block {
+  margin-bottom: 20px;
+  padding: 18px 20px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.tips-block h2 {
+  margin: 0 0 10px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.tips-block p {
+  margin: 0 0 12px;
+  max-width: 72ch;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+
+.tips-block p:last-child {
+  margin-bottom: 0;
+}
+
+.tips-steps {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.tips-steps li {
+  margin-bottom: 8px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+
+.tips-steps strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.tips-steps strong::after {
+  content: " — ";
+  color: var(--text-dim);
+  font-weight: 400;
+}
+
+/* The command is there to be copied, and body sets user-select: none. */
+.tips-code {
+  display: inline-block;
+  margin: 0 0 14px !important;
+  padding: 7px 12px;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text) !important;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  user-select: text;
+}
+
+.tips-actions {
+  margin-bottom: 12px !important;
+}
+
+.tips-links {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.tips-links li {
+  margin-bottom: 6px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+/* Inside a list the link sits on the text baseline, without the top padding it
+   needs when it follows a field. */
+.tips-links .field-link {
+  padding-top: 0;
+}
+
+/* ---------- about tab ---------- */
+
+.about-identity h2 {
+  margin-bottom: 6px;
+  font-size: 16px;
+}
+
+.about-note {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.about-note.is-error {
+  color: var(--error);
+}
+
+.about-subtitle {
+  margin: 16px 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+}
+
+/* Release notes arrive as Markdown and are shown as they were written: nothing
+   in this frontend renders HTML it did not build itself. */
+.about-notes {
+  max-height: 260px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  overflow: auto;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  user-select: text;
+}
+
+.about-license {
+  margin: 0 0 4px !important;
+  color: var(--text) !important;
+}
+
+/* The update log only appears once an install starts, so it sizes to its
+   content rather than filling a flex column the way the export log does. */
+#update-log {
+  min-height: 0;
+  max-height: 240px;
+  margin-top: 12px;
+}
+
+/* The banner's own margin centres it in a form; inside a block it should not. */
+.tips-block .banner-action {
+  margin: 0 0 12px;
+  max-width: none;
+}
+
+/* ---------- template and diagram preview ---------- */
+
+.preview {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  background: var(--overlay);
+}
+
+.preview[hidden] {
+  display: none;
+}
+
+.preview-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 16px;
+  background: var(--bg-raised);
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+
+.preview-title {
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preview-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+.preview-zoom {
+  min-width: 48px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.preview-stage {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden; /* panning replaces scrollbars */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: none;
+}
+
+/* The diagrams are draw.io exports on a light canvas: keep a white backdrop so
+   their black labels stay readable inside the dark shell. Scaling an SVG with a
+   transform keeps the text sharp, which is the whole point of the format. */
+.preview-stage img {
+  max-width: 100%;
+  max-height: 100%;
+  background: var(--canvas);
+  border-radius: var(--radius);
+  transform-origin: center center;
+  cursor: grab;
+  user-select: none;
+}
+
+.preview-stage img:active {
+  cursor: grabbing;
+}
+
+/* ---------- footer ---------- */
+
+.app-footer {
+  flex: none;
+  padding: 6px 16px;
+  background: var(--bg-raised);
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  min-height: 28px;
+}
+
+.status {
+  color: var(--text-dim);
+}
+
+.status.is-error {
+  color: var(--error);
+}

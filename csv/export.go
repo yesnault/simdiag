@@ -250,21 +250,15 @@ func recordPhysicalMapping(physicalMappings map[virtualRef]*physicalMapping, key
 	}
 }
 
-// mergeRow stores row under key, preferring the variant that carries physical
-// device information and a real action label over a bare "TARGET" placeholder.
+// mergeRow stores row under key, keeping the first one seen.
+//
+// It used to prefer the variant carrying physical device information, and a real
+// action label over a bare "TARGET" one. Neither preference could ever apply:
+// dedupKey holds action and physicalDevice, so two rows colliding on a key have
+// the same values for both. The conditions were dead, and dead code that reads
+// like a deliberate policy is worse than none.
 func mergeRow(rowMap map[dedupKey]*csvRowData, key dedupKey, row *csvRowData) {
-	existing, exists := rowMap[key]
-	if !exists {
-		rowMap[key] = row
-		return
-	}
-
-	// The row with physical info also carries the correct modifier from Gremlins
-	if existing.physicalDevice == "" && row.physicalDevice != "" {
-		rowMap[key] = row
-	}
-	// Prefer an actual description over a bare "TARGET" label
-	if strings.HasPrefix(existing.action, "TARGET") && !strings.HasPrefix(row.action, "TARGET") {
+	if _, exists := rowMap[key]; !exists {
 		rowMap[key] = row
 	}
 }

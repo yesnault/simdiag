@@ -123,13 +123,13 @@ func parseIL2Devices(devicesPath string) (map[string]*common.Device, error) {
 		// URL-decode the GUID and model
 		guid, err := url.QueryUnescape(guidEncoded)
 		if err != nil {
-			fmt.Printf("Warning: failed to decode GUID on line %d: %v\n", lineNum, err)
+			common.Printf("Warning: failed to decode GUID on line %d: %v\n", lineNum, err)
 			continue
 		}
 
 		model, err := url.QueryUnescape(modelEncoded)
 		if err != nil {
-			fmt.Printf("Warning: failed to decode model on line %d: %v\n", lineNum, err)
+			common.Printf("Warning: failed to decode model on line %d: %v\n", lineNum, err)
 			continue
 		}
 
@@ -287,7 +287,7 @@ func lookupDevice(devices map[string]*common.Device, joyNum string, warn bool) (
 	deviceGUID := findDeviceGUIDByConfigID(devices, joyNum)
 	if deviceGUID == "" {
 		if warn {
-			fmt.Printf("  [IL2] Warning: No device found for joy%s (button binding)\n", joyNum)
+			common.Printf("  [IL2] Warning: No device found for joy%s (button binding)\n", joyNum)
 		}
 		return nil, ""
 	}
@@ -296,7 +296,7 @@ func lookupDevice(devices map[string]*common.Device, joyNum string, warn bool) (
 	device := devices[compositeKey]
 	if device == nil {
 		if warn {
-			fmt.Printf("  [IL2] Warning: Device is nil for key '%s'\n", compositeKey)
+			common.Printf("  [IL2] Warning: Device is nil for key '%s'\n", compositeKey)
 		}
 		return nil, ""
 	}

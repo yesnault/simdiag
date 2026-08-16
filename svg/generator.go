@@ -2,6 +2,7 @@ package svg
 
 import (
 	"cmp"
+	"context"
 	"fmt"
 	"html"
 	"os"
@@ -26,27 +27,41 @@ var (
 )
 
 // unusedKeyPatterns match the placeholders that must be blanked out when no
-// binding filled them in: buttons, axes, hats and the modifier colour slots.
-var unusedKeyPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`\bButton_\d+\b`),
-	regexp.MustCompile(`\bAxis_[a-zA-Z]+_?\d*\b`),
-	regexp.MustCompile(`\bPOV_\d+_[URDL]+\b`),
-	regexp.MustCompile(`\b[a-zA-Z]+_\w+_Modifiers?\b`),
-	regexp.MustCompile(`\b[a-zA-Z]+_\w+_Modifier_\d+(_[a-zA-Z]+)?\b`),
+// binding filled them in.
+//
+// The button, axis and hat patterns come from common so that anything the
+// template loader recognises as a key is also erased here. The two modifier
+// slots are extra: they are colour placeholders, not inputs, so the loader has
+// no reason to know them.
+var unusedKeyPatterns = append(common.KeyPatterns(),
+	regexp.MustCompile(`(?i)\b[a-zA-Z]+_\w+_Modifiers?\b`),
+	regexp.MustCompile(`(?i)\b[a-zA-Z]+_\w+_Modifier_\d+(_[a-zA-Z]+)?\b`),
+)
+
+// RenderSVG fills a template with a device's bindings and returns the finished SVG
+// document. It touches neither the filesystem nor draw.io, so callers can preview a
+// diagram without producing any artifact.
+func RenderSVG(exportDevice *common.ExportDevice) (string, error) {
+	if exportDevice == nil || exportDevice.Template == nil {
+		return "", fmt.Errorf("template missing for export")
+	}
+	if exportDevice.Profile == nil {
+		return "", fmt.Errorf("profile missing for export")
+	}
+	return populateTemplate(exportDevice), nil
 }
 
-// ExportToSVG exports a device to an SVG file using a template
-func ExportToSVG(exportDevice *common.ExportDevice, outputDir string) error {
-	if exportDevice.Template == nil {
-		return fmt.Errorf("template missing for export")
+// ExportToSVG renders a device and writes the SVG file, then converts it to PNG.
+func ExportToSVG(ctx context.Context, exportDevice *common.ExportDevice, outputDir string, config *common.Config) error {
+	// Fill template with device data
+	svgData, err := RenderSVG(exportDevice)
+	if err != nil {
+		return err
 	}
 
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		return fmt.Errorf("error creating output directory: %w", err)
 	}
-
-	// Fill template with device data
-	svgData := populateTemplate(exportDevice)
 
 	// Note: Pretty-printing SVG with Go's XML encoder causes issues with DOCTYPE and namespaces
 	// Keep the original formatting from the template
@@ -58,24 +73,25 @@ func ExportToSVG(exportDevice *common.ExportDevice, outputDir string) error {
 		return fmt.Errorf("error writing file: %w", err)
 	}
 
-	fmt.Printf("✓ Diagram exported: %s\n", outputPath)
+	common.Printf("✓ Diagram exported: %s\n", outputPath)
 
 	// Convert the diagram to PNG in a png subdirectory; failures are reported but
 	// do not fail the export, since the SVG is already written.
 	pngDir := filepath.Join(outputDir, "png")
 	if err := os.MkdirAll(pngDir, 0755); err != nil {
-		fmt.Printf("  ⚠ PNG directory creation failed: %v\n", err)
-	} else {
-		// Generate PNG filename in png subdirectory
-		baseName := filepath.Base(outputPath)
-		pngFileName := strings.TrimSuffix(baseName, ".svg") + ".png"
-		pngPath := filepath.Join(pngDir, pngFileName)
+		common.Printf("  ⚠ PNG directory creation failed: %v\n", err)
+		return nil
+	}
 
-		if err := ConvertSVGToPNG(outputPath, pngPath, nil); err != nil {
-			fmt.Printf("  ⚠ PNG conversion failed: %v\n", err)
-		} else {
-			fmt.Printf("  ✓ PNG exported: %s\n", pngPath)
-		}
+	// Generate PNG filename in png subdirectory
+	baseName := filepath.Base(outputPath)
+	pngFileName := strings.TrimSuffix(baseName, ".svg") + ".png"
+	pngPath := filepath.Join(pngDir, pngFileName)
+
+	if err := ConvertSVGToPNG(ctx, outputPath, pngPath, config); err != nil {
+		common.Printf("  ⚠ PNG conversion failed: %v\n", err)
+	} else {
+		common.Printf("  ✓ PNG exported: %s\n", pngPath)
 	}
 
 	return nil

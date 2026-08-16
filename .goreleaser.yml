@@ -2,6 +2,14 @@ version: 2
 
 project_name: simdiag
 
+# Windows is the only target we build, and the before-hooks inherit this.
+# It matters on the Linux CI runner: the gui package pulls in Wails, whose Linux
+# backend requires CGO/GTK, so a default (linux) `golangci-lint run` cannot
+# typecheck the project at all.
+env:
+  - GOOS=windows
+  - CGO_ENABLED=0
+
 before:
   hooks:
     - go mod tidy
@@ -20,14 +28,20 @@ builds:
     env:
       - CGO_ENABLED=0
     ldflags:
+      # -H windowsgui links the binary into the GUI subsystem so a double-click
+      # does not flash a console window. CLI runs reattach to the parent console
+      # at startup (see app.AttachParentConsole).
+      - -H windowsgui
       - -X main.simdiagVersion={{ .Version }}
 
 archives:
+  # The binary alone: the base templates ride inside it (see the templates
+  # package) and the GUI writes them out on demand, so the archive has nothing
+  # to duplicate — and stops shipping one pilot's bespoke button boxes to
+  # everyone.
   - id: windows-archive
-    format: zip
+    formats: [zip]
     name_template: "{{ .ProjectName }}_{{ .Version }}_windows_amd64"
-    files:
-      - templates/*.svg
 
 checksum:
   name_template: "checksums.txt"

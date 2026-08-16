@@ -299,3 +299,38 @@ func TestExportToCSV_IL2Simulator(t *testing.T) {
 		t.Error("Output file missing module (il2)")
 	}
 }
+
+// The header and the values are built from the same map, so a column can no
+// longer gain a name without gaining a value. This test states the property
+// that made the old two-list arrangement dangerous: reordering one list silently
+// wrote every value under the wrong header.
+func TestRowCoversExactlyTheDeclaredColumns(t *testing.T) {
+	row := &csvRowData{
+		simulator: "s", module: "m", action: "a", modifier: "mod",
+		modifierDevice: "md", modifierNum: "1", physicalDevice: "pd",
+		physicalInput: "pi", physicalDeviceGUID: "guid", virtualDevice: "vd",
+		virtualInput: "vi", templateKey: "Button_1", templatePath: "t.svg",
+	}
+
+	byColumn := row.byColumn()
+
+	for _, column := range AllColumns {
+		if _, ok := byColumn[column]; !ok {
+			t.Errorf("column %q is written to the header but has no value", column)
+		}
+	}
+	if len(byColumn) != len(AllColumns) {
+		t.Errorf("the row carries %d values for %d columns", len(byColumn), len(AllColumns))
+	}
+
+	fields := row.fields()
+	if len(fields) != len(AllColumns) {
+		t.Fatalf("fields() returned %d values for %d columns", len(fields), len(AllColumns))
+	}
+	for i, column := range AllColumns {
+		if fields[i] != byColumn[column] {
+			t.Errorf("field %d is %q, but column %d is %q whose value is %q",
+				i, fields[i], i, column, byColumn[column])
+		}
+	}
+}

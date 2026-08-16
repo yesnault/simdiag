@@ -1,15 +1,25 @@
 package svg
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"simdiag/common"
 )
 
-// ConvertSVGToPNG converts an SVG file to PNG format using Draw.io
-// Requires Draw.io to be installed and available in PATH
-func ConvertSVGToPNG(svgPath, pngPath string, config *common.Config) error {
+// ConvertSVGToPNG converts an SVG file to PNG format using Draw.io.
+// Requires Draw.io to be installed and available in PATH.
+// draw.io is a heavyweight Electron app started once per diagram, so the context
+// is what lets a caller actually interrupt a long export.
+func ConvertSVGToPNG(ctx context.Context, svgPath, pngPath string, config *common.Config) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	var drawIOCmd string
 
 	// First, try configured path from config
@@ -45,7 +55,7 @@ func ConvertSVGToPNG(svgPath, pngPath string, config *common.Config) error {
 
 	// Use Draw.io for conversion
 	// Syntax: draw.io.exe --export --format png --output "foo.png" "bar.svg"
-	cmd := exec.Command(drawIOCmd, "--export", "--format", "png", "--output", pngPath, svgPath)
+	cmd := exec.CommandContext(ctx, drawIOCmd, "--export", "--format", "png", "--output", pngPath, svgPath)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("draw.io conversion failed: %w\nOutput: %s", err, string(output))

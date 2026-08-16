@@ -1,8 +1,44 @@
 package common
 
 import (
-	"os"
+	"cmp"
+	"slices"
 )
+
+// GetAllDevicesFromProfiles extracts all unique devices from all profiles,
+// virtual ones marked and sorted last.
+func GetAllDevicesFromProfiles(profiles *ProfileCollection) []*Device {
+	deviceMap := make(map[string]*Device)
+
+	for _, profile := range profiles.Profiles {
+		for guid, device := range profile.Devices {
+			if _, exists := deviceMap[guid]; !exists {
+				deviceMap[guid] = device
+			}
+		}
+	}
+
+	// Mark virtual devices (vJoy, Thrustmaster Combined, etc.)
+	MarkVirtualDevicesInMap(deviceMap)
+
+	var devices []*Device
+	for _, device := range deviceMap {
+		devices = append(devices, device)
+	}
+
+	// Sort by name for consistent display, with virtual devices at the end
+	slices.SortFunc(devices, func(a, b *Device) int {
+		if a.IsVirtual != b.IsVirtual {
+			if a.IsVirtual {
+				return 1 // Non-virtual first
+			}
+			return -1
+		}
+		return cmp.Compare(a.Name, b.Name)
+	})
+
+	return devices
+}
 
 // GroupDevicesByTemplate groups devices by their template filepath
 // Returns a map: template filepath -> list of device GUIDs
@@ -20,98 +56,4 @@ func GroupDevicesByTemplate(deviceTemplates map[string]*Template) map[string][]s
 	}
 
 	return templateGroups
-}
-
-// LoadDeviceTemplatePathsOnly loads only template paths (metadata) without loading SVG content
-// Used in CSV-only mode to populate template paths in CSV without validation
-func LoadDeviceTemplatePathsOnly(devices map[string]*Device, config *Config) map[string]*Template {
-	// Add missing devices that have external bindings
-	addMissingDevicesWithExternalBindings(devices, config)
-
-	deviceTemplates := make(map[string]*Template)
-
-	for guid, device := range devices {
-		if device.IsVirtual {
-			continue
-		}
-
-		mapping := config.GetTemplateMappingForDevice(guid)
-		if mapping != nil && mapping.SkipTemplate {
-			continue
-		}
-
-		// Get template path from config
-		templatePath := getTemplatePath(mapping, config)
-		if templatePath == "" {
-			continue
-		}
-
-		// Create lightweight template with only path metadata (no SVG content)
-		// Name is extracted from filepath (without .svg extension)
-		templateName := GetTemplateNameFromPath(templatePath)
-		deviceTemplates[guid] = &Template{
-			FilePath: templatePath,
-			Name:     templateName,
-		}
-	}
-
-	return deviceTemplates
-}
-
-// addMissingDevicesWithExternalBindings adds devices with external bindings to the devices map
-func addMissingDevicesWithExternalBindings(devices map[string]*Device, config *Config) {
-	if config == nil {
-		return
-	}
-
-	for _, mapping := range config.DeviceMappings {
-		// Check for exact match first
-		if _, exists := devices[mapping.DeviceGUID]; exists {
-			continue
-		}
-
-		// Check if a device with a partially matching GUID already exists (IL-2 vs DCS format)
-		// If so, skip adding this mapping to avoid duplicates
-		hasPartialMatch := false
-		for existingGUID := range devices {
-			if MatchGUIDPartial(mapping.DeviceGUID, existingGUID) {
-				hasPartialMatch = true
-				break
-			}
-		}
-		if hasPartialMatch {
-			continue
-		}
-
-		if hasExternalBindingsForGUID(mapping.DeviceGUID, config) {
-			devices[mapping.DeviceGUID] = &Device{
-				GUID: mapping.DeviceGUID,
-				Name: mapping.DeviceName,
-			}
-		}
-	}
-}
-
-// hasExternalBindingsForGUID checks if a device GUID has external bindings
-func hasExternalBindingsForGUID(guid string, config *Config) bool {
-	if config == nil || ExtFuncs == nil {
-		return false
-	}
-
-	return ExtFuncs.HasGremlinsBindingsForDevice(guid, config) ||
-		ExtFuncs.HasOpenKneeboardBindingsForDevice(guid, config)
-}
-
-// getTemplatePath gets the absolute path to a template from mapping
-func getTemplatePath(mapping *DeviceTemplateMapping, config *Config) string {
-	if mapping == nil {
-		return ""
-	}
-
-	absolutePath := MakeAbsolutePath(mapping.TemplateFilepath, config.TemplatesDirectory)
-	if _, err := os.Stat(absolutePath); err == nil {
-		return absolutePath
-	}
-
-	return ""
 }

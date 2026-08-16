@@ -114,6 +114,12 @@ type Binding struct {
 	OutputKeys     []string         // Keyboard keys output (e.g., ["L_ALT", "SPC"])
 	OutputMouse    string           // Mouse output if any
 	OutputJoystick string           // Virtual joystick output if any
+
+	// KeyboardLayout is the layout OutputKeys are written in, taken from the
+	// profile the binding was read from. TARGET records the character the
+	// author's keyboard produced, so an AZERTY user's script says "é" where a
+	// QWERTY one says "2"; matching against a simulator needs to know which.
+	KeyboardLayout KeyboardLayout
 }
 
 // ParseProfile parses a TARGET FCF profile file
@@ -127,8 +133,37 @@ func ParseProfile(profilePath string) ([]*Binding, error) {
 		return nil, err
 	}
 
-	return parseEvents(profile.EventsList.Events)
+	bindings, err := parseEvents(profile.EventsList.Events)
+	if err != nil {
+		return nil, err
+	}
+
+	// The layout applies to the whole profile, but it is the keys that need it,
+	// so every binding carries the one its file declared.
+	layout := keyboardLayoutFromTarget(profile.ProjectData.KeyboardLayout)
+	for _, binding := range bindings {
+		binding.KeyboardLayout = layout
+	}
+
+	return bindings, nil
 }
+
+// keyboardLayoutFromTarget maps the <KeyboardLayout> of a .fcf onto a layout.
+//
+// Thrustmaster does not document the encoding. 1 is AZERTY, established from real
+// profiles: a file declaring 1 contains "é", "²" and "&", which only resolve
+// against a simulator once treated as AZERTY. Other values do occur in the wild,
+// so anything unrecognised stays QWERTY, the behaviour every profile got before
+// the layout was read at all, which means no existing profile can regress.
+func keyboardLayoutFromTarget(layout int) KeyboardLayout {
+	if layout == targetLayoutAzerty {
+		return KeyboardAZERTY
+	}
+	return KeyboardQWERTY
+}
+
+// targetLayoutAzerty is the only <KeyboardLayout> value whose meaning is known.
+const targetLayoutAzerty = 1
 
 // loadAndParseXML loads and parses the TARGET XML file
 func loadAndParseXML(profilePath string) (*Profile, error) {
@@ -625,36 +660,11 @@ type LayerInfo struct {
 	HasD bool // Down layer active (layer value 64)
 }
 
-// IsOnAllUMDLayers returns true if the binding is active on all U, M, D layers
-func (l LayerInfo) IsOnAllUMDLayers() bool {
-	return l.HasU && l.HasM && l.HasD
-}
-
 // HasSwitchActive returns true if the I switch is active (shift pressed)
 // Layer 1 (HasI) = switch IS pressed (shift mode)
 // Layer 2 (HasO) = switch NOT pressed (normal mode)
 func (l LayerInfo) HasSwitchActive() bool {
 	return l.HasI && !l.HasO
-}
-
-// GetActiveModifierLayers returns which UMD layers are NOT active (meaning specific layers are targeted)
-// Returns empty slice if all layers are active (no modifier needed)
-func (l LayerInfo) GetActiveModifierLayers() []string {
-	if l.IsOnAllUMDLayers() {
-		return nil // Active on all layers, no modifier needed
-	}
-
-	var layers []string
-	if l.HasU {
-		layers = append(layers, "U")
-	}
-	if l.HasM {
-		layers = append(layers, "M")
-	}
-	if l.HasD {
-		layers = append(layers, "D")
-	}
-	return layers
 }
 
 // parseTargetLayers parses the layers string into a list of layer numbers
@@ -816,7 +826,7 @@ func LoadBindings(profilePath string, deviceNumber int) []*Binding {
 
 	allBindings, err := ParseProfile(profilePath)
 	if err != nil {
-		fmt.Printf("⚠ Error parsing TARGET profile: %v\n", err)
+		common.Printf("⚠ Error parsing TARGET profile: %v\n", err)
 		return nil
 	}
 

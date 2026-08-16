@@ -1,19 +1,15 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
 
+	"simdiag/app"
 	"simdiag/common"
-	"simdiag/dcs"
-	"simdiag/gremlins"
-	"simdiag/il2"
-	"simdiag/il2korea"
-	"simdiag/openkneeboard"
-	"simdiag/srs"
+	"simdiag/gui"
 	"simdiag/svg"
-	"simdiag/target"
 	"simdiag/update"
 	"simdiag/workflow"
 )
@@ -24,23 +20,24 @@ var simdiagVersion = "dev"
 func init() {
 	// Set the version in common package so it's available for exports
 	common.SimdiagVersion = simdiagVersion
-
-	// Set up external function dependencies
-	common.ExtFuncs = &common.ExternalFuncs{
-		GetTargetDeviceNumbers:    target.GetTargetDeviceNumbers,
-		AutoMatchTargetDevices:    target.AutoMatchTargetDevices,
-		TargetDeviceNumberToName:  target.DeviceNumberToName,
-		GetUnmatchedTargetDevices: target.GetUnmatchedTargetDevices,
-		HasGremlinsBindingsForDevice: func(guid string, config *common.Config) bool {
-			return len(gremlins.LoadBindingsForDevice(guid, config)) > 0
-		},
-		HasOpenKneeboardBindingsForDevice: func(guid string, config *common.Config) bool {
-			return len(openkneeboard.LoadBindingsForDevice(guid, config)) > 0
-		},
-	}
 }
 
 func main() {
+	// No arguments at all means a double-click: open the graphical interface.
+	// Every other invocation is a command line one and needs a console.
+	if len(os.Args) == 1 {
+		if err := gui.Run(simdiagVersion); err != nil {
+			app.AttachParentConsole()
+			fmt.Printf("❌ Error: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	// SimDiag is linked as a GUI-subsystem binary, so a CLI run has no standard
+	// handles until it reattaches to the console that launched it.
+	app.AttachParentConsole()
+
 	// Handle 'update' subcommand before flag parsing
 	if len(os.Args) >= 2 && os.Args[1] == "update" {
 		if err := update.Run(); err != nil {
@@ -82,14 +79,18 @@ type cliArgs struct {
 	noSVG       bool
 }
 
-// parseFlags parses command line flags and returns structured arguments
+// parseFlags parses command line flags and returns structured arguments.
+//
+// The command line exports; it does not configure. Creating and editing
+// mapping_config.yaml is the graphical interface's job. No flag here writes to
+// it.
 func parseFlags() cliArgs {
 	args := cliArgs{}
-	flag.BoolVar(&args.batchMode, "b", false, "Batch mode: non-interactive, use only existing mappings")
+	flag.BoolVar(&args.batchMode, "b", false, "Batch mode: export everything the configuration declares")
 	flag.BoolVar(&args.versionFlag, "v", false, "Display version information")
 	flag.StringVar(&args.configFile, "c", "mapping_config.yaml", "Path to the configuration file")
 	flag.StringVar(&args.csvPath, "csv", "", "Generate SVG/PNG from existing CSV file")
-	flag.StringVar(&args.filter, "f", "", "Filter modules/simulators in batch mode (e.g., '2000' for M-2000C, 'il2' for IL-2)")
+	flag.StringVar(&args.filter, "f", "", "Filter modules/simulators in batch mode (e.g., '2000' for M-2000C, 'il-2' for IL-2)")
 	flag.BoolVar(&args.noSVG, "no-svg", false, "CSV export only (skip SVG generation)")
 	flag.Parse()
 	return args
@@ -109,69 +110,65 @@ func runApplication(args cliArgs) error {
 		return runCSVMode(args.csvPath, args.configFile, args.noSVG)
 	}
 
-	config, err := loadConfig(args.batchMode)
+	// Flags that select no export mode (typically just -c) mean the graphical
+	// interface, on the requested configuration.
+	if !args.batchMode {
+		return gui.RunWithConfig(simdiagVersion, args.configFile)
+	}
+
+	config, err := loadConfig()
 	if err != nil {
 		return err
 	}
 
-	if args.batchMode {
-		runBatchMode(config, args.filter, args.noSVG)
-		return nil
-	}
-
-	return runInteractiveMode(config)
+	runBatchMode(config, args.filter, args.noSVG)
+	return nil
 }
 
-// loadConfig loads the configuration file or creates a new one for interactive mode
-func loadConfig(batchMode bool) (*common.Config, error) {
-	// In batch mode, configuration file is required
-	if batchMode {
-		if _, err := os.Stat(common.GetConfigFileName()); os.IsNotExist(err) {
-			return nil, fmt.Errorf("configuration file not found: %s\nBatch mode requires an existing configuration file.\nPlease run in interactive mode first to create the configuration", common.GetConfigFileName())
-		}
+// openTheInterface is the way out of every "nothing is configured" error. The
+// command line cannot create a configuration any more. Pointing at a flag
+// would be pointing at nothing.
+const openTheInterface = "Run simdiag.exe with no argument to create one in the graphical interface."
+
+// loadConfig loads the configuration an export needs. It has to exist: the
+// command line reads the configuration, it never writes one.
+func loadConfig() (*common.Config, error) {
+	if _, err := os.Stat(common.GetConfigFileName()); os.IsNotExist(err) {
+		return nil, fmt.Errorf("configuration file not found: %s\n%s", common.GetConfigFileName(), openTheInterface)
 	}
 
-	// Load config
 	config, err := common.LoadConfig()
-
-	// If config failed to load, handle based on mode
-	if err != nil || config == nil {
-		if batchMode {
-			if err != nil {
-				return nil, fmt.Errorf("unable to load configuration file: %s\nDetails: %w\nPlease run in interactive mode first to create a valid configuration", common.GetConfigFileName(), err)
-			}
-			return nil, fmt.Errorf("unable to load configuration file: %s\nPlease run in interactive mode first to create a valid configuration", common.GetConfigFileName())
-		}
-		// Interactive mode - create empty config
-		config = &common.Config{Simulators: make(map[string]*common.SimulatorConfig)}
-		return config, nil
+	if err != nil {
+		return nil, fmt.Errorf("unable to load configuration file: %s\nDetails: %w\n%s", common.GetConfigFileName(), err, openTheInterface)
+	}
+	if config == nil {
+		return nil, fmt.Errorf("unable to load configuration file: %s\n%s", common.GetConfigFileName(), openTheInterface)
 	}
 
-	// In batch mode, validate that config has at least one simulator configured
-	if batchMode {
-		if err := validateBatchConfig(config); err != nil {
-			return nil, err
-		}
+	if err := validateBatchConfig(config); err != nil {
+		return nil, err
 	}
 
 	return config, nil
 }
 
-// validateBatchConfig ensures the configuration is valid for batch mode
+// validateBatchConfig ensures the configuration is valid for batch mode.
+//
+// It asks common.SimulatorIsConfigured the same question the export itself asks,
+// rather than re-stating the rule: this check used to test the DCS module list
+// and never DCSPath. A DCS-only configuration was refused here even though the
+// export would have handled it.
 func validateBatchConfig(config *common.Config) error {
 	hasConfiguredSim := false
-	for _, simConfig := range config.Simulators {
-		if simConfig != nil {
-			// Check if DCS has modules or if IL-2 has input path configured
-			if len(simConfig.Modules) > 0 || simConfig.IL2InputPath != "" {
-				hasConfiguredSim = true
-				break
-			}
+	for key, simConfig := range config.Simulators {
+		if common.SimulatorIsConfigured(common.SimulationTypeForConfigKey(key), simConfig) {
+			hasConfiguredSim = true
+			break
 		}
 	}
 
 	if !hasConfiguredSim {
-		return fmt.Errorf("no configured simulators found.\nThe configuration file exists but contains no simulator configuration.\nPlease run in interactive mode first to configure at least one simulator")
+		return fmt.Errorf("no configured simulators found.\nThe configuration file exists but declares no simulator path.\n%s", openTheInterface)
 	}
 	return nil
 }
@@ -199,7 +196,9 @@ func runCSVMode(csvPath, configFile string, noSVG bool) error {
 
 	// Validate config has required fields
 	if config.TemplatesDirectory == "" {
-		return fmt.Errorf("templates_directory not configured")
+		// The base templates ship inside this binary; the graphical interface
+		// offers to write them out, which is the shortest way out of this.
+		return fmt.Errorf("templates_directory not configured: run simdiag.exe with no argument to install the base templates")
 	}
 	if config.OutputDirectory == "" {
 		return fmt.Errorf("output_directory not configured")
@@ -217,8 +216,9 @@ func runCSVMode(csvPath, configFile string, noSVG bool) error {
 
 	fmt.Printf("Generating SVG/PNG from CSV: %s\n", csvPath)
 
-	// Generate SVG from CSV
-	if err := svg.GenerateSVGFromCSV(csvPath, config); err != nil {
+	// Generate SVG from CSV. Validation errors are already printed by the
+	// generator. The CLI has nothing extra to do with them.
+	if _, err := svg.GenerateSVGFromCSV(context.Background(), csvPath, config); err != nil {
 		return err
 	}
 
@@ -238,112 +238,8 @@ func runBatchMode(config *common.Config, filter string, noSVG bool) {
 		}
 	}
 
-	// Create simulator parsers
-	parsers := map[common.SimulationType]common.SimulatorParser{
-		common.DCSWorld:     dcs.NewParser(),
-		common.IL2Sturmovik: il2.NewParser(),
-		common.IL2Korea:     il2korea.NewParser(config),
+	// Process all configured simulators, reusing the config already loaded
+	if _, err := workflow.ExportAll(context.Background(), config, app.Parsers(config), app.Enrichers(), filter, noSVG); err != nil {
+		fmt.Printf("⚠ Export failed: %v\n", err)
 	}
-
-	// Create binding enrichers
-	enrichers := []common.BindingEnricher{
-		gremlins.NewEnricher(),
-		target.NewEnricher(),
-		openkneeboard.NewEnricher(),
-		srs.NewEnricher(),
-	}
-
-	// Process all configured simulators
-	workflow.ExportAllSimulatorsBatchWithInterfaces(parsers, enrichers, filter, noSVG)
-}
-
-// runInteractiveMode executes the interactive configuration workflow
-func runInteractiveMode(config *common.Config) error {
-	// Select simulator
-	simType := common.SelectSimulation()
-	configPath := common.GetConfigPath(config, simType, false)
-
-	// Save the config path for batch mode reuse
-	saveSimulatorPath(config, simType, configPath)
-
-	// Configure optional tools
-	configureOptionalTools(config)
-
-	// Parse simulator files
-	profiles, err := parseSimulator(config, simType, configPath)
-	if err != nil {
-		return err
-	}
-
-	// Display results
-	common.DisplayProfiles(profiles)
-
-	// Interactive configuration workflow
-	workflow.ConfigureWorkflowInteractive(profiles, simType)
-	return nil
-}
-
-// saveSimulatorPath saves the simulator path to the configuration
-func saveSimulatorPath(config *common.Config, simType common.SimulationType, configPath string) {
-	switch simType {
-	case common.IL2Sturmovik, common.IL2Korea:
-		simConfig := config.GetSimulatorConfig(simType)
-		simConfig.IL2InputPath = configPath
-		if err := common.SaveConfig(config); err != nil {
-			fmt.Printf("⚠ Unable to save %s path: %v\n", simType, err)
-		}
-	case common.DCSWorld:
-		dcsConfig := config.GetSimulatorConfig(common.DCSWorld)
-		dcsConfig.DCSPath = configPath
-		if err := common.SaveConfig(config); err != nil {
-			fmt.Printf("⚠ Unable to save DCS path: %v\n", err)
-		}
-	}
-}
-
-// configureOptionalTools prompts the user to configure optional tools
-func configureOptionalTools(config *common.Config) {
-	// Configure draw.io for PNG export (optional)
-	if _, found := common.VerifyDrawIOPath(config); !found {
-		if !common.ConfigureDrawIOPath(config) {
-			fmt.Println("\n⚠ PNG export will be disabled (draw.io not configured)")
-		}
-	}
-
-	// Configure optional components using the Configurable interface
-	configurables := []common.Configurable{
-		srs.NewConfigurator(),
-		openkneeboard.NewConfigurator(),
-	}
-
-	for _, cfg := range configurables {
-		if err := cfg.Configure(config, false); err != nil {
-			fmt.Printf("\n⚠ %s configuration error: %v\n", cfg.GetName(), err)
-		}
-	}
-}
-
-// parseSimulator parses the simulator configuration files using the appropriate parser
-func parseSimulator(config *common.Config, simType common.SimulationType, configPath string) (*common.ProfileCollection, error) {
-	// Get the appropriate parser for the simulator type
-	var parser common.SimulatorParser
-
-	switch simType {
-	case common.DCSWorld:
-		parser = dcs.NewParser()
-	case common.IL2Sturmovik:
-		parser = il2.NewParser()
-	case common.IL2Korea:
-		parser = il2korea.NewParser(config)
-	default:
-		return nil, fmt.Errorf("simulation type not supported")
-	}
-
-	// Parse using the interface
-	profiles, err := parser.Parse(configPath)
-	if err != nil {
-		return nil, fmt.Errorf("error during parsing: %w", err)
-	}
-
-	return profiles, nil
 }

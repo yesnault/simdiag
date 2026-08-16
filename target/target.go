@@ -25,7 +25,7 @@ func addBindings(exportDevice *common.ExportDevice, fullProfile *common.Profile,
 	}
 
 	layerSwitchers := ParseLayerSwitchers(profilePath)
-	hasSwitchI := convertAndAddBindings(exportDevice, fullProfile, config, allBindings, deviceNumberToGUID)
+	hasSwitchI := convertAndAddBindings(exportDevice, fullProfile, allBindings, deviceNumberToGUID)
 
 	if hasSwitchI {
 		addSwitchIBinding(exportDevice, layerSwitchers, deviceNumberToGUID)
@@ -37,16 +37,8 @@ func addBindings(exportDevice *common.ExportDevice, fullProfile *common.Profile,
 
 // getProfilePathAndMappings gets TARGET profile path and device mappings
 func getProfilePathAndMappings(exportDevice *common.ExportDevice, config *common.Config) (string, map[int]string) {
-	var profilePath string
-	var deviceMappings []common.TargetDeviceMapping
-
-	if exportDevice.Profile.SimType == common.DCSWorld && exportDevice.Profile.Module != "" {
-		profilePath = GetProfilePath(config, common.DCSWorld, exportDevice.Profile.Module)
-		deviceMappings = GetTargetDeviceMappings(config)
-	} else {
-		profilePath = GetProfilePath(config, exportDevice.Profile.SimType, "")
-		deviceMappings = GetTargetDeviceMappings(config)
-	}
+	profilePath := GetProfilePath(config, exportDevice.Profile.SimType)
+	deviceMappings := GetTargetDeviceMappings(config)
 
 	deviceNumberToGUID := make(map[int]string)
 	for _, mapping := range deviceMappings {
@@ -102,11 +94,11 @@ func loadAllBindings(profilePath string, targetDeviceNumbers []int) []*Binding {
 }
 
 // convertAndAddBindings converts TARGET bindings and adds them to the profile
-func convertAndAddBindings(exportDevice *common.ExportDevice, fullProfile *common.Profile, config *common.Config, allBindings []*Binding, deviceNumberToGUID map[int]string) bool {
+func convertAndAddBindings(exportDevice *common.ExportDevice, fullProfile *common.Profile, allBindings []*Binding, deviceNumberToGUID map[int]string) bool {
 	hasSwitchI := false
 
 	for _, tb := range allBindings {
-		bindings := convertBinding(exportDevice, fullProfile, config, tb, deviceNumberToGUID, &hasSwitchI)
+		bindings := convertBinding(exportDevice, fullProfile, tb, deviceNumberToGUID, &hasSwitchI)
 		if len(bindings) > 0 {
 			exportDevice.Profile.Bindings = append(exportDevice.Profile.Bindings, bindings...)
 		}
@@ -117,7 +109,7 @@ func convertAndAddBindings(exportDevice *common.ExportDevice, fullProfile *commo
 
 // convertBinding converts a single TARGET binding to common bindings
 // Returns multiple bindings if the same key combo maps to multiple simulator actions
-func convertBinding(exportDevice *common.ExportDevice, fullProfile *common.Profile, config *common.Config, tb *Binding, deviceNumberToGUID map[int]string, hasSwitchI *bool) []common.Binding {
+func convertBinding(exportDevice *common.ExportDevice, fullProfile *common.Profile, tb *Binding, deviceNumberToGUID map[int]string, hasSwitchI *bool) []common.Binding {
 	deviceGUID := deviceNumberToGUID[tb.DeviceNumber]
 	if deviceGUID == "" {
 		return nil
@@ -127,9 +119,9 @@ func convertBinding(exportDevice *common.ExportDevice, fullProfile *common.Profi
 	action := determineAction(tb)
 
 	// Get all matching simulator actions
-	actionDescs := findSimulatorActionForTarget(tb, fullProfile.Bindings, config)
+	actionDescs := findSimulatorActionForTarget(tb, fullProfile.Bindings)
 	if len(actionDescs) == 0 {
-		actionDescs = findSimulatorActionForTarget(tb, exportDevice.Profile.Bindings, config)
+		actionDescs = findSimulatorActionForTarget(tb, exportDevice.Profile.Bindings)
 	}
 
 	// If no simulator actions found, create one binding with default description
@@ -290,7 +282,7 @@ func addSwitchIBinding(exportDevice *common.ExportDevice, layerSwitchers map[int
 	}
 
 	exportDevice.Profile.Bindings = append(exportDevice.Profile.Bindings, switchBinding)
-	fmt.Printf("  ℹ TARGET I switch button: %s on %s\n", switcher.ButtonID, deviceName)
+	common.Printf("  ℹ TARGET I switch button: %s on %s\n", switcher.ButtonID, deviceName)
 }
 
 // parseButtonID parses a button ID string to input type and ID
@@ -381,10 +373,10 @@ func isDeviceInExportDevice(exportDevice *common.ExportDevice, deviceGUID string
 
 // findSimulatorActionForTarget tries to find simulator actions that match the TARGET keyboard binding
 // Returns ALL matching actions (since one key combo can map to multiple functions in IL-2)
-// TARGET stores keys in the user's keyboard layout format (e.g., ")" on AZERTY)
+// TARGET stores keys in the layout its profile was authored in (e.g., ")" on AZERTY)
 // IL-2 uses QWERTY key names internally (e.g., "key_equals" for the physical = key)
-// So we need to convert from user's layout to QWERTY for matching
-func findSimulatorActionForTarget(tb *Binding, simBindings []common.Binding, config *common.Config) []string {
+// So we convert from the profile's layout to QWERTY for matching
+func findSimulatorActionForTarget(tb *Binding, simBindings []common.Binding) []string {
 	var results []string
 
 	// Check for virtual joystick button output (vJoy BTN98, etc.)
@@ -409,11 +401,8 @@ func findSimulatorActionForTarget(tb *Binding, simBindings []common.Binding, con
 		return results
 	}
 
-	// Get the user's keyboard layout
-	userLayout := common.GetKeyboardLayoutFromConfig(config)
-
-	// Convert TARGET keys from user's layout to QWERTY (IL-2's internal format)
-	convertedKeys := common.ConvertKeysForLayout(tb.OutputKeys, userLayout, common.KeyboardQWERTY)
+	// Convert TARGET keys from the profile's layout to QWERTY (IL-2's internal format)
+	convertedKeys := ConvertKeysForLayout(tb.OutputKeys, tb.KeyboardLayout, KeyboardQWERTY)
 
 	// Normalize key order (modifiers first) for consistent matching
 	convertedKeys = common.NormalizeKeyOrder(convertedKeys)
@@ -499,37 +488,29 @@ func convertTargetToIL2Format(keys []string) string {
 
 // targetKeyToIL2Key converts TARGET key names to IL-2 key names
 func targetKeyToIL2Key(key string) string {
+	if il2Key, found := common.IL2KeyName(key); found {
+		return il2Key
+	}
+
+	// The keypad and the punctuation are TARGET's own vocabulary; the modifiers
+	// and named keys above are shared with the Gremlins enricher.
 	keyMap := map[string]string{
-		"LShift":    "lshift",
-		"RShift":    "rshift",
-		"LCtrl":     "lcontrol",
-		"RCtrl":     "rcontrol",
-		"LAlt":      "lmenu",
-		"RAlt":      "rmenu",
-		"LWin":      "lwin",
-		"RWin":      "rwin",
-		"Space":     "space",
-		"Enter":     "return",
-		"Backspace": "back",
-		"ESC":       "escape",
-		"CapsLock":  "capital",
-		"Tab":       "tab",
-		"Num0":      "numpad0",
-		"Num1":      "numpad1",
-		"Num2":      "numpad2",
-		"Num3":      "numpad3",
-		"Num4":      "numpad4",
-		"Num5":      "numpad5",
-		"Num6":      "numpad6",
-		"Num7":      "numpad7",
-		"Num8":      "numpad8",
-		"Num9":      "numpad9",
-		"Num.":      "decimal",
-		"NumEnter":  "numpadenter",
-		"Num+":      "add",
-		"Num-":      "subtract",
-		"Num*":      "multiply",
-		"Num/":      "divide",
+		"Num0":     "numpad0",
+		"Num1":     "numpad1",
+		"Num2":     "numpad2",
+		"Num3":     "numpad3",
+		"Num4":     "numpad4",
+		"Num5":     "numpad5",
+		"Num6":     "numpad6",
+		"Num7":     "numpad7",
+		"Num8":     "numpad8",
+		"Num9":     "numpad9",
+		"Num.":     "decimal",
+		"NumEnter": "numpadenter",
+		"Num+":     "add",
+		"Num-":     "subtract",
+		"Num*":     "multiply",
+		"Num/":     "divide",
 		// Special characters
 		"=":  "equals",
 		"-":  "minus",
@@ -555,46 +536,15 @@ func targetKeyToIL2Key(key string) string {
 
 // il2KeyToStandard converts IL-2 key names to standard format
 func il2KeyToStandard(il2Key string) string {
-	keyMap := map[string]string{
-		"lshift":   "LShift",
-		"rshift":   "RShift",
-		"lcontrol": "LCtrl",
-		"rcontrol": "RCtrl",
-		"lalt":     "LAlt",
-		"ralt":     "RAlt",
-		"space":    "Space",
-		"return":   "Enter",
-		"back":     "Backspace",
-		"escape":   "ESC",
-		"capital":  "CapsLock",
-	}
-
-	if standard, found := keyMap[il2Key]; found {
-		return standard
-	}
-
-	return strings.ToUpper(il2Key)
+	return common.StandardKeyName(il2Key)
 }
 
-// GetProfilePath returns the TARGET profile path for the current context
-func GetProfilePath(config *common.Config, simType common.SimulationType, moduleName string) string {
-	if config == nil {
-		return ""
-	}
-
-	if simType == common.DCSWorld && moduleName != "" {
-		moduleConfig := config.GetModuleConfig(simType, moduleName)
-		if moduleConfig != nil {
-			return moduleConfig.TargetProfileFilepath
-		}
-	}
-
-	simConfig := config.GetSimulatorConfig(simType)
-	if simConfig != nil {
-		return simConfig.TargetProfileFilepath
-	}
-
-	return ""
+// GetProfilePath returns the TARGET profile path configured for a simulator.
+//
+// It takes no module: a TARGET script is written for a physical HOTAS, not for an
+// aircraft, so it applies to every module of the simulator it is configured on.
+func GetProfilePath(config *common.Config, simType common.SimulationType) string {
+	return config.TargetProfilePath(simType)
 }
 
 // GetTargetDeviceMappings returns the TARGET device mappings for the current context

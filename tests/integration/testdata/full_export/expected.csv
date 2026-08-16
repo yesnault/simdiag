@@ -47,7 +47,7 @@ il2_sturmovik,il2,"Montrer/cacher l'ATH complet",,,,Arduino Due,BTN25,ee6f1c30-3
 il2_sturmovik,il2,"Pare soleil monté",,,,Arduino Due,BTN17,ee6f1c30-3f2e-11f0-0000545345440180,,,Button_17,yesno_custom_due.svg
 il2_korea,il2-korea,"F8",,,,Arduino Micro,BTN22,9f4570d0-3ee0-11f0-8002-444553540000,Keyboard,F8,Button_22,yesno_custom_micro.svg
 dcs_world,FA-18C_hornet,"Switch BTN102",,,1,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R,BTN102,530648C0-98C7-11f0-8002-444553540000,,,Button_102,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R.svg
-dcs_world,FA-18C_hornet,"SRS Switch2",,,,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R,BTN18,530648c0-98c7-11f0-8002-444553540000,,,Button_18,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R.svg
+dcs_world,FA-18C_hornet,"SRS Switch2",,,,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R,BTN18,530648C0-98C7-11f0-8002-444553540000,,,Button_18,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R.svg
 dcs_world,M-2000C,"LCtrl",,,,Switchology MCP,BTN43,9814c5e0-3ee0-11f0-8001-444553540000,Keyboard,LCtrl,Button_43,yesno_custom_switchology.svg
 il2_sturmovik,il2,"Réglage du réticule de visée verticale / Viseur : hauteur cible",,,,Switchology MCP,BTN12,9814c5e0-3ee0-11f0-0000545345440180,,,Button_12,yesno_custom_switchology.svg
 il2_sturmovik,il2,"IA-pilote automatique marche/arrêt",,,,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R,BTN92,530648c0-98c7-11f0-0000545345440280,,,Button_92,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R.svg
@@ -100,7 +100,7 @@ dcs_world,P-47D-30,"Planchette - Raccourci précédent",,,,WINWING Orion Throttl
 dcs_world,P-47D-30,"F9 Ship view",,,,Arduino Micro,BTN23,9f4570d0-3ee0-11f0-8002-444553540000,Keyboard,F9,Button_23,yesno_custom_micro.svg
 il2_sturmovik,il2,"Mitrailleurs: Attaque à distance normale",,,,Switchology MCP,BTN20,9814c5e0-3ee0-11f0-0000545345440180,,,Button_20,yesno_custom_switchology.svg
 il2_korea,il2-korea,"OpenKneeboard: Decrease Brightness",,,,Arduino Micro,BTN19,9F4570D0-3EE0-11f0-8002-444553540000,,,Button_19,yesno_custom_micro.svg
-dcs_world,P-47D-30,"SRS Switch2",,,,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R,BTN18,530648c0-98c7-11f0-8002-444553540000,,,Button_18,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R.svg
+dcs_world,P-47D-30,"SRS Switch2",,,,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R,BTN18,530648C0-98C7-11f0-8002-444553540000,,,Button_18,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R.svg
 dcs_world,P-47D-30,"OpenKneeboard: Recenter Vr",,,,Arduino Due,BTN38,EE6F1C30-3F2E-11f0-8001-444553540000,,,Button_38,yesno_custom_due.svg
 dcs_world,M-2000C,"F1 Cockpit view",,,,Arduino Micro,BTN11,9f4570d0-3ee0-11f0-8002-444553540000,Keyboard,F1,Button_11,yesno_custom_micro.svg
 dcs_world,M-2000C,"Decoy Program release",,,,WINCTRL Orion Joystick Base Metal 2 + JGRIP-F16,BTN10,3833AD30-98C7-11f0-8001-444553540000,,,Button_10,WINCTRL Orion Joystick Base Metal 2 + JGRIP-F16.svg
@@ -116,7 +116,7 @@ dcs_world,P-47D-30,"Frein de roue gauche (analogique)",,,,T-Rudder,Axis Y,B0C891
 il2_sturmovik,il2,"OpenKneeboard: Next Bookmark",,,,Arduino Micro,BTN9,9f4570d0-3ee0-11f0-0000545345440280,,,Button_9,yesno_custom_micro.svg
 dcs_world,FA-18C_hornet,"OpenKneeboard: Toggle Visibility",,,,Arduino Micro,BTN1,9F4570D0-3EE0-11f0-8002-444553540000,,,Button_1,yesno_custom_micro.svg
 dcs_world,M-2000C,"Bomb Release Interval Decrease",BTN102,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R,1,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R,BTN100,530648C0-98C7-11f0-8002-444553540000,,,Button_100,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R.svg
-dcs_world,M-2000C,"SRS Switch1",,,,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R,BTN20,530648c0-98c7-11f0-8002-444553540000,,,Button_20,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R.svg
+dcs_world,M-2000C,"SRS Switch1",,,,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R,BTN20,530648C0-98C7-11f0-8002-444553540000,,,Button_20,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R.svg
 dcs_world,M-2000C,"V/UHF MODE Rotate CCW",,,,button_box_small,BTN16,A9F92800-3EE0-11f0-8003-444553540000,,,Button_16,yesno_custom_button_box_small.svg
 dcs_world,M-2000C,"Canopy Position CYCLE",,,,WINCTRL CarrierAce PTO 2,BTN10,BA8A45A0-AA8D-11f0-8001-444553540000,,,Button_10,WINCTRL CarrierAce PTO 2.svg
 il2_sturmovik,il2,"Verrière ouverte",,,,WINWING F18 TAKEOFF PANEL 2,BTN11,ba8a45a0-aa8d-11f0-0000545345440180,,,Button_11,WINCTRL CarrierAce PTO 2.svg
@@ -141,7 +141,7 @@ il2_sturmovik,il2,"Accélérer le jeu en mission",,,,button_box_small,BTN11,a9f9
 il2_korea,il2-korea,"F6",,,,Arduino Micro,BTN18,9f4570d0-3ee0-11f0-8002-444553540000,Keyboard,F6,Button_18,yesno_custom_micro.svg
 dcs_world,M-2000C,"Stores 2 SELECT",,,,Arduino Due,BTN2,EE6F1C30-3F2E-11f0-8001-444553540000,,,Button_2,yesno_custom_due.svg
 dcs_world,M-2000C,"BINGO Fuel Combo Inc",BTN105,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R,2,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R,BTN104,530648C0-98C7-11f0-8002-444553540000,,,Button_104,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R.svg
-dcs_world,P-47D-30,"SRS Switch1",,,,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R,BTN20,530648c0-98c7-11f0-8002-444553540000,,,Button_20,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R.svg
+dcs_world,P-47D-30,"SRS Switch1",,,,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R,BTN20,530648C0-98C7-11f0-8002-444553540000,,,Button_20,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R.svg
 dcs_world,P-47D-30,"OpenKneeboard: Toggle Visibility",,,,Arduino Micro,BTN1,9F4570D0-3EE0-11f0-8002-444553540000,,,Button_1,yesno_custom_micro.svg
 dcs_world,M-2000C,"PCN Button 7",,,,Switchology MCP,BTN17,9814C5E0-3EE0-11f0-8001-444553540000,,,Button_17,yesno_custom_switchology.svg
 dcs_world,M-2000C,"Switch BTN102",,,1,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R,BTN102,530648C0-98C7-11f0-8002-444553540000,,,Button_102,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R.svg
@@ -434,7 +434,7 @@ il2_sturmovik,il2,"Mitrailleurs: Cesser les tirs d'armes lourdes",,,,Switchology
 il2_sturmovik,il2,"Mitrailleurs: Attaque à courte distance",,,,Switchology MCP,BTN17,9814c5e0-3ee0-11f0-0000545345440180,,,Button_17,yesno_custom_switchology.svg
 dcs_world,P-47D-30,"Volets - maintien rétraction",,,,WINCTRL CarrierAce PTO 2,BTN5,BA8A45A0-AA8D-11f0-8001-444553540000,,,Button_5,WINCTRL CarrierAce PTO 2.svg
 il2_sturmovik,il2,"Axe de contrôle des volets des radiateurs d'eau",,,,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R,BTN9,530648c0-98c7-11f0-0000545345440280,,,Button_9,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R.svg
-dcs_world,FA-18C_hornet,"SRS Switch1",,,,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R,BTN20,530648c0-98c7-11f0-8002-444553540000,,,Button_20,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R.svg
+dcs_world,FA-18C_hornet,"SRS Switch1",,,,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R,BTN20,530648C0-98C7-11f0-8002-444553540000,,,Button_20,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R.svg
 dcs_world,M-2000C,"Modifier BTN42",,,3,Arduino Due,BTN42,EE6F1C30-3F2E-11f0-8001-444553540000,,,Button_42,yesno_custom_due.svg
 dcs_world,M-2000C,"PCN Parameter ALT",,,,Switchology MCP,BTN27,9814C5E0-3EE0-11f0-8001-444553540000,,,Button_27,yesno_custom_switchology.svg
 dcs_world,M-2000C,"TDC DEPRESS (Lock Target)",,,,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R,BTN35,530648C0-98C7-11f0-8002-444553540000,,,Button_35,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R.svg
@@ -685,7 +685,7 @@ il2_korea,il2-korea,"Mouse Movement X",,,,WINWING Orion Joystick Base 2 + JGRIP-
 dcs_world,FA-18C_hornet,"Command Menu Next Item",,,,WINCTRL Orion Joystick Base Metal 2 + JGRIP-F16,BTN24,3833AD30-98C7-11f0-8001-444553540000,,,Button_24,WINCTRL Orion Joystick Base Metal 2 + JGRIP-F16.svg
 dcs_world,FA-18C_hornet,"Mouse 10",,,,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R,BTN27,530648c0-98c7-11f0-8002-444553540000,Mouse,Mouse 10,Button_27,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R.svg
 dcs_world,M-2000C,"Modifier BTN80",,,4,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R,BTN80,530648C0-98C7-11f0-8002-444553540000,,,Button_80,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R.svg
-dcs_world,M-2000C,"SRS Switch2",,,,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R,BTN18,530648c0-98c7-11f0-8002-444553540000,,,Button_18,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R.svg
+dcs_world,M-2000C,"SRS Switch2",,,,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R,BTN18,530648C0-98C7-11f0-8002-444553540000,,,Button_18,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R.svg
 dcs_world,M-2000C,"V/UHF GREEN Radio Menu",,,,button_box_small,BTN10,A9F92800-3EE0-11f0-8003-444553540000,,,Button_10,yesno_custom_button_box_small.svg
 il2_sturmovik,il2,"Montrer/cacher l'aide de jeu",,,,Arduino Due,BTN26,ee6f1c30-3f2e-11f0-0000545345440180,,,Button_26,yesno_custom_due.svg
 il2_sturmovik,il2,"Mitrailleurs: Cesser le feu",,,,Switchology MCP,BTN21,9814c5e0-3ee0-11f0-0000545345440180,,,Button_21,yesno_custom_switchology.svg
@@ -718,3 +718,11 @@ il2_sturmovik,il2,"Mitrailleurs: Tirs de riposte",,,,Switchology MCP,BTN18,9814c
 dcs_world,M-2000C,"N Switch (Waypoint Selector Increase)",,,,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R,BTN54,530648C0-98C7-11f0-8002-444553540000,,,Button_54,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R.svg
 dcs_world,M-2000C,"Refuel Lights Disabled",,,,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R,BTN74,530648C0-98C7-11f0-8002-444553540000,,,Button_74,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R.svg
 dcs_world,P-47D-30,"Radio bouton C",,,,button_box_small,BTN3,A9F92800-3EE0-11f0-8003-444553540000,,,Button_3,yesno_custom_button_box_small.svg
+il2_sturmovik,il2,"SRS Switch1",,,,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R,BTN18,530648c0-98c7-11f0-0000545345440280,,,Button_18,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R.svg
+il2_sturmovik,il2,"SRS Switch2",,,,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R,BTN20,530648c0-98c7-11f0-0000545345440280,,,Button_20,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R.svg
+il2_sturmovik,il2,"SRS RadioChannelUp",,,,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R,BTN17,530648c0-98c7-11f0-0000545345440280,,,Button_17,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R.svg
+il2_sturmovik,il2,"SRS RadioChannelDown",,,,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R,BTN19,530648c0-98c7-11f0-0000545345440280,,,Button_19,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R.svg
+il2_korea,il2-korea,"SRS Switch1",,,,WINCTRL Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R,BTN18,530648c0-98c7-11f0-0000545345440280,,,Button_18,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R.svg
+il2_korea,il2-korea,"SRS Switch2",,,,WINCTRL Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R,BTN20,530648c0-98c7-11f0-0000545345440280,,,Button_20,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R.svg
+il2_korea,il2-korea,"SRS RadioChannelUp",,,,WINCTRL Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R,BTN17,530648c0-98c7-11f0-0000545345440280,,,Button_17,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R.svg
+il2_korea,il2-korea,"SRS RadioChannelDown",,,,WINCTRL Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R,BTN19,530648c0-98c7-11f0-0000545345440280,,,Button_19,WINWING Orion Throttle Base II + F15EX HANDLE L + F15EX HANDLE R.svg

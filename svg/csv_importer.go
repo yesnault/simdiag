@@ -1,11 +1,14 @@
 package svg
 
 import (
+	"context"
 	"encoding/csv"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -69,7 +72,7 @@ func validateGenerationConfig(config *common.Config) error {
 // readCSVGroups reads the export and buckets its rows by simulator, module and
 // template. It also returns the keys in first-appearance order, so that diagram
 // generation does not depend on map iteration order.
-func readCSVGroups(csvPath string) (map[groupKey][]csvRow, []groupKey, error) {
+func readCSVGroups(csvPath string, config *common.Config) (map[groupKey][]csvRow, []groupKey, error) {
 	file, err := os.Open(csvPath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("error opening CSV file: %w", err)
@@ -90,6 +93,7 @@ func readCSVGroups(csvPath string) (map[groupKey][]csvRow, []groupKey, error) {
 
 	groups := make(map[groupKey][]csvRow)
 	var groupOrder []groupKey
+	untemplated := make(map[string]int)
 
 	for {
 		record, err := reader.Read()
@@ -103,7 +107,17 @@ func readCSVGroups(csvPath string) (map[groupKey][]csvRow, []groupKey, error) {
 		row := rowFromRecord(record, colIndices)
 
 		// Virtual-only bindings and rows without a template produce no diagram
-		if row.physicalDevice == "" || row.templatePath == "" {
+		if row.physicalDevice == "" {
+			continue
+		}
+		if row.templatePath == "" {
+			// A physical device with no template is worth reporting: its
+			// bindings are in the CSV, yet no diagram will carry them, and
+			// silence makes that look like a lost export. Unless the user said
+			// to ignore the device, in which case this is what they asked for.
+			if !isSkippedDevice(config, row.physicalDeviceGUID) {
+				untemplated[row.physicalDevice]++
+			}
 			continue
 		}
 
@@ -116,7 +130,29 @@ func readCSVGroups(csvPath string) (map[groupKey][]csvRow, []groupKey, error) {
 		groups[key] = append(groups[key], row)
 	}
 
+	reportUntemplatedDevices(untemplated)
+
 	return groups, groupOrder, nil
+}
+
+// isSkippedDevice reports whether the user chose to ignore a device, in which
+// case its lack of a template is a decision rather than an omission.
+func isSkippedDevice(config *common.Config, deviceGUID string) bool {
+	if config == nil || deviceGUID == "" {
+		return false
+	}
+	mapping := config.GetTemplateMappingForDevice(deviceGUID)
+	return mapping != nil && mapping.SkipTemplate
+}
+
+// reportUntemplatedDevices names the devices whose bindings reached the CSV but
+// have no template to be drawn on, either because none was assigned or because
+// the assigned file no longer exists.
+func reportUntemplatedDevices(untemplated map[string]int) {
+	for _, device := range slices.Sorted(maps.Keys(untemplated)) {
+		common.Printf("⚠ %s: %d binding(s) have no template, no diagram generated for this device\n",
+			device, untemplated[device])
+	}
 }
 
 // columnIndices maps each expected column name to its position in the header,
@@ -196,7 +232,7 @@ func buildExportDevice(key groupKey, rows []csvRow, config *common.Config) *comm
 	absoluteTemplatePath := common.MakeAbsolutePath(key.templatePath, config.TemplatesDirectory)
 	template, err := common.LoadTemplate(absoluteTemplatePath)
 	if err != nil {
-		fmt.Printf("  ⚠ Error loading template %s: %v\n", key.templatePath, err)
+		common.Printf("  ⚠ Error loading template %s: %v\n", key.templatePath, err)
 		return nil
 	}
 
@@ -230,23 +266,33 @@ func buildExportDevice(key groupKey, rows []csvRow, config *common.Config) *comm
 	}
 }
 
-// GenerateSVGFromCSV reads a CSV file and generates SVG/PNG diagrams from it
-func GenerateSVGFromCSV(csvPath string, config *common.Config) error {
+// GenerateSVGFromCSV reads a CSV file and generates SVG/PNG diagrams from it.
+// It returns the bindings that had no matching key in their template, so a caller
+// with a screen can list them instead of leaving them in the log.
+func GenerateSVGFromCSV(ctx context.Context, csvPath string, config *common.Config) ([]common.ValidationError, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if err := validateGenerationConfig(config); err != nil {
-		return err
+		return nil, err
 	}
 
-	groups, groupOrder, err := readCSVGroups(csvPath)
+	groups, groupOrder, err := readCSVGroups(csvPath, config)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	fmt.Printf("\nGenerating diagrams from CSV (%d groups)...\n", len(groups))
+	common.Printf("\nGenerating diagrams from CSV (%d groups)...\n", len(groups))
 
 	// Process each group, in the order the groups first appeared in the CSV
 	exportCount := 0
 	var allValidationErrors []common.ValidationError
 	for _, key := range groupOrder {
+		if err := ctx.Err(); err != nil {
+			common.Printf("\n⚠ Generation interrupted after %d diagram(s)\n", exportCount)
+			return allValidationErrors, err
+		}
+
 		exportDevice := buildExportDevice(key, groups[key], config)
 		if exportDevice == nil {
 			continue
@@ -254,8 +300,8 @@ func GenerateSVGFromCSV(csvPath string, config *common.Config) error {
 
 		allValidationErrors = append(allValidationErrors, ValidateBindings(exportDevice)...)
 
-		if err := ExportToSVG(exportDevice, exportDevice.OutputDirectory); err != nil {
-			fmt.Printf("  ✗ Error exporting %s: %v\n", exportDevice.Device.Name, err)
+		if err := ExportToSVG(ctx, exportDevice, exportDevice.OutputDirectory, config); err != nil {
+			common.Printf("  ✗ Error exporting %s: %v\n", exportDevice.Device.Name, err)
 			continue
 		}
 		exportCount++
@@ -264,8 +310,8 @@ func GenerateSVGFromCSV(csvPath string, config *common.Config) error {
 	// Display validation errors
 	DisplayValidationErrors(allValidationErrors)
 
-	fmt.Printf("\n✓ %d diagram(s) generated from CSV\n", exportCount)
-	return nil
+	common.Printf("\n✓ %d diagram(s) generated from CSV\n", exportCount)
+	return allValidationErrors, nil
 }
 
 // parseSimulatorType converts simulator string to SimulationType

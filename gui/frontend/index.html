@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SimDiag</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <span class="brand-mark">SimDiag</span>
+      <span class="brand-version" id="version">—</span>
+    </div>
+    <div class="config-picker">
+      <span class="config-path-label" data-i18n="app.configLabel">config</span>
+      <button type="button" id="config-current" class="config-current"
+              aria-haspopup="true" aria-expanded="false"
+              data-i18n-title="app.configTitle"
+              title="Configuration file in use — click for recent files">
+        <span id="config-path">—</span>
+        <span class="caret" aria-hidden="true">▾</span>
+      </button>
+      <button type="button" id="btn-config-open" class="btn btn-small" data-i18n="app.open">Open…</button>
+      <div id="config-menu" class="config-menu" role="menu" hidden></div>
+      <div class="language-picker" role="group" data-i18n-title="app.language" title="Interface language">
+        <button type="button" class="btn btn-small lang" data-language="fr" aria-pressed="false">FR</button>
+        <button type="button" class="btn btn-small lang" data-language="en" aria-pressed="false">EN</button>
+      </div>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button class="tab" role="tab" data-panel="configuration" aria-selected="true" data-i18n="tab.configuration">Configuration</button>
+    <button class="tab" role="tab" data-panel="devices" aria-selected="false" data-i18n="tab.devices">Devices</button>
+    <button class="tab" role="tab" data-panel="generate" aria-selected="false" data-i18n="tab.generate">Generate</button>
+    <button class="tab" role="tab" data-panel="diagrams" aria-selected="false" data-i18n="tab.diagrams">Diagrams</button>
+    <button class="tab" role="tab" data-panel="tips" aria-selected="false" data-i18n="tab.tips">Tips</button>
+    <button class="tab" role="tab" data-panel="about" aria-selected="false" data-i18n="tab.about">About</button>
+  </nav>
+
+  <main class="panels">
+    <section class="panel is-active" id="panel-configuration" role="tabpanel">
+      <div class="panel-toolbar">
+        <div class="toolbar-inner">
+          <span id="dirty-marker" class="dirty-marker" hidden data-i18n="config.unsaved">Unsaved changes</span>
+          <div class="toolbar-actions">
+            <button type="button" id="btn-reload" class="btn" data-i18n="config.reload">Reload</button>
+            <button type="button" id="btn-save" class="btn btn-primary" disabled data-i18n="config.save">Save</button>
+          </div>
+        </div>
+      </div>
+      <form id="config-form" class="config-form" autocomplete="off"></form>
+    </section>
+
+    <section class="panel" id="panel-devices" role="tabpanel">
+      <div class="panel-toolbar">
+        <div class="toolbar-inner">
+          <span id="devices-summary" class="toolbar-note"></span>
+          <div class="toolbar-actions">
+            <button type="button" id="btn-detect-target" class="btn"
+                    data-i18n-title="devices.detectTargetTitle"
+                    title="Match the TARGET device numbers to your controllers by name"
+                    data-i18n="devices.detectTarget">Detect TARGET numbers</button>
+            <button type="button" id="btn-scan" class="btn" data-i18n="devices.rescan">Rescan</button>
+          </div>
+        </div>
+      </div>
+      <div id="devices-body" class="devices-body">
+        <p class="empty-note" data-i18n="devices.loading">Reading the simulator configurations…</p>
+      </div>
+    </section>
+
+    <section class="panel" id="panel-generate" role="tabpanel">
+      <div class="panel-toolbar">
+        <div class="toolbar-inner">
+          <label class="inline-field">
+            <span data-i18n="generate.export">Export</span>
+            <select id="export-target" class="field-input"></select>
+          </label>
+          <label class="inline-check" data-i18n-title="generate.csvOnlyTitle"
+                 title="Export the CSV only, without generating any diagram">
+            <input type="checkbox" id="export-csv-only">
+            <span data-i18n="generate.csvOnly">CSV only</span>
+          </label>
+          <div class="toolbar-actions">
+            <button type="button" id="btn-cancel" class="btn" hidden data-i18n="generate.cancel">Cancel</button>
+            <button type="button" id="btn-export" class="btn btn-primary" data-i18n="generate.run">Generate</button>
+          </div>
+        </div>
+      </div>
+      <div class="generate-body">
+        <div id="export-warnings"></div>
+        <div id="export-summary"></div>
+        <pre id="export-log" class="export-log" aria-live="polite"></pre>
+      </div>
+    </section>
+
+    <section class="panel" id="panel-diagrams" role="tabpanel">
+      <div class="panel-toolbar">
+        <div class="toolbar-inner">
+          <span id="diagrams-summary" class="toolbar-note"></span>
+          <div class="toolbar-actions">
+            <button type="button" id="btn-open-output" class="btn" data-i18n="diagrams.openFolder">Open folder</button>
+            <button type="button" id="btn-regenerate" class="btn" data-i18n="diagrams.regenerate">Regenerate from CSV</button>
+            <button type="button" id="btn-refresh-diagrams" class="btn" data-i18n="diagrams.refresh">Refresh</button>
+          </div>
+        </div>
+      </div>
+      <div id="diagrams-body" class="diagrams-body">
+        <p class="empty-note" data-i18n="diagrams.loading">Reading the output directory…</p>
+      </div>
+    </section>
+
+    <!-- Documentation the interface carries itself, so SimDiag can be used
+         without opening the README. It is spelled out here rather than built in
+         app.js: static markup carrying data-i18n changes language for free. -->
+    <section class="panel" id="panel-tips" role="tabpanel">
+      <div class="tips-body">
+
+        <article class="tips-block">
+          <h2 data-i18n="tips.startTitle">Getting started</h2>
+          <p data-i18n="tips.startIntro"></p>
+          <ol class="tips-steps">
+            <li>
+              <strong data-i18n="tab.configuration">Configuration</strong>
+              <span data-i18n="tips.step1"></span>
+            </li>
+            <li>
+              <strong data-i18n="tab.devices">Devices</strong>
+              <span data-i18n="tips.step2"></span>
+            </li>
+            <li>
+              <strong data-i18n="tab.generate">Generate</strong>
+              <span data-i18n="tips.step3"></span>
+            </li>
+            <li>
+              <strong data-i18n="tab.diagrams">Diagrams</strong>
+              <span data-i18n="tips.step4"></span>
+            </li>
+          </ol>
+        </article>
+
+        <article class="tips-block">
+          <h2 data-i18n="tips.cliTitle">Generating without the interface</h2>
+          <p data-i18n="tips.cliIntro"></p>
+          <p class="tips-code">simdiag.exe -b</p>
+          <p data-i18n="tips.batIntro"></p>
+          <p class="tips-actions">
+            <button type="button" id="btn-create-bat" class="btn" data-i18n="tips.createBat">
+              Create run_simdiag_batch.bat
+            </button>
+          </p>
+          <p data-i18n="tips.batAfter"></p>
+        </article>
+
+        <article class="tips-block">
+          <h2 data-i18n="tips.linksTitle">Useful links</h2>
+          <ul class="tips-links">
+            <li>
+              <button type="button" class="field-link" data-link="drawio">drawio.com</button>
+              <span data-i18n="tips.linkDrawio"></span>
+            </li>
+            <li>
+              <button type="button" class="field-link" data-link="openkneeboard">openkneeboard.com</button>
+              <span data-i18n="tips.linkOpenKneeboard"></span>
+            </li>
+          </ul>
+        </article>
+
+      </div>
+    </section>
+
+    <!-- Which version this is, whether a newer one exists, where the project
+         lives and under what licence. Only the update block is built in JS: it
+         depends on a server answer, so it cannot be static markup. -->
+    <section class="panel" id="panel-about" role="tabpanel">
+      <div class="tips-body">
+
+        <article class="tips-block about-identity">
+          <h2>SimDiag <span id="about-version">—</span></h2>
+          <p data-i18n="about.tagline"></p>
+        </article>
+
+        <article class="tips-block">
+          <h2 data-i18n="about.updateTitle">Update</h2>
+          <div id="about-update"></div>
+          <pre id="update-log" class="export-log" aria-live="polite" hidden></pre>
+        </article>
+
+        <article class="tips-block">
+          <h2 data-i18n="about.linksTitle">Links</h2>
+          <ul class="tips-links">
+            <li>
+              <button type="button" class="field-link" data-link="github">github.com/yesnault/simdiag</button>
+              <span data-i18n="about.linkRepository"></span>
+            </li>
+            <li>
+              <button type="button" class="field-link" data-link="githubReleases">releases</button>
+              <span data-i18n="about.linkReleases"></span>
+            </li>
+            <li>
+              <button type="button" class="field-link" data-link="githubIssues">issues</button>
+              <span data-i18n="about.linkIssues"></span>
+            </li>
+          </ul>
+        </article>
+
+        <article class="tips-block">
+          <h2 data-i18n="about.licenseTitle">Licence</h2>
+          <p class="about-license">Apache License 2.0</p>
+          <p class="about-license">Copyright 2026 Yvonnick Esnault</p>
+          <button type="button" class="field-link" data-link="license">LICENSE</button>
+        </article>
+
+      </div>
+    </section>
+  </main>
+
+  <div id="preview" class="preview" hidden>
+    <div class="preview-bar">
+      <span id="preview-title" class="preview-title"></span>
+      <div class="preview-actions">
+        <button type="button" id="preview-out" class="btn btn-small" data-i18n-title="preview.zoomOut" title="Zoom out">−</button>
+        <span id="preview-zoom" class="preview-zoom">100%</span>
+        <button type="button" id="preview-in" class="btn btn-small" data-i18n-title="preview.zoomIn" title="Zoom in">+</button>
+        <button type="button" id="preview-fit" class="btn btn-small" data-i18n="preview.fit">Fit</button>
+        <button type="button" id="preview-close" class="btn" data-i18n="preview.close">Close</button>
+      </div>
+    </div>
+    <div class="preview-stage" id="preview-stage">
+      <img id="preview-image" alt="" draggable="false">
+    </div>
+  </div>
+
+  <!-- Own confirmation rather than window.confirm: the webview suppresses
+       script dialogs, and a native Wails dialog cannot report its answer back
+       to an HTTP handler. -->
+  <div id="confirm" class="confirm-backdrop" hidden>
+    <div class="confirm-box" role="dialog" aria-modal="true" aria-labelledby="confirm-message">
+      <p id="confirm-message"></p>
+      <div class="confirm-actions">
+        <button type="button" id="confirm-cancel" class="btn" data-i18n="confirm.cancel">Cancel</button>
+        <button type="button" id="confirm-ok" class="btn btn-primary" data-i18n="confirm.continue">Discard and continue</button>
+      </div>
+    </div>
+  </div>
+
+  <footer class="app-footer">
+    <span id="status" class="status"></span>
+  </footer>
+
+  <!-- One entry point: the rest of the interface arrives through its imports,
+       one module per tab. -->
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

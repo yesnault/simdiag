@@ -5,7 +5,11 @@ else
     SHELL := /bin/bash
 endif
 
-.PHONY: build test unit-test integration-test update-expected clean
+.PHONY: build gui-dev resources test unit-test integration-test update-expected clean
+
+# go-winres version used to compile the Windows resources. Pinned so a
+# regeneration years from now produces the same .syso.
+WINRES := github.com/tc-hib/go-winres@v0.3.3
 
 # Build the project using GoReleaser
 build:
@@ -31,6 +35,25 @@ build:
 	@echo ""
 	@echo "Build successful!"
 	@echo "Binary copied to project root"
+
+# Regenerate the Windows resources: application icon, manifest and version info.
+#
+# The resulting cmd/simdiag/rsrc_windows_amd64.syso is committed, so neither the
+# build nor CI needs this tool. Run it only after changing the icon or
+# winres/winres.json. Replacing build/windows/icon.ico with your own artwork
+# means editing tools/mkicon or dropping PNGs into winres/ directly.
+resources:
+	@echo "Rendering the application icon..."
+	go run ./tools/mkicon build/windows/icon.ico winres
+	@echo "Compiling Windows resources..."
+	go run $(WINRES) make --arch amd64 --out cmd/simdiag/rsrc
+	@echo "Done: cmd/simdiag/rsrc_windows_amd64.syso"
+
+# Run the GUI from source, serving the frontend from disk so that editing
+# HTML/CSS/JS only needs a refresh (Ctrl+R) instead of a rebuild.
+gui-dev:
+	@echo "Starting SimDiag GUI (frontend served from gui/frontend)"
+	SIMDIAG_FRONTEND_DIR=gui/frontend go run ./cmd/simdiag
 
 # Run all tests (unit + integration)
 test: unit-test integration-test
@@ -66,6 +89,12 @@ unit-test:
 	@echo ""
 	@echo "Running Gremlins unit tests..."
 	go test ./gremlins/ -v
+	@echo ""
+	@echo "Running workflow unit tests..."
+	go test ./workflow/ -v
+	@echo ""
+	@echo "Running GUI unit tests..."
+	go test ./gui/ -v
 
 # Run integration tests
 integration-test:

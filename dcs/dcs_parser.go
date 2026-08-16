@@ -70,7 +70,7 @@ func parseDCS(basePath string) (*common.ProfileCollection, error) {
 	}
 
 	// Path to Config/Input
-	inputPath := filepath.Join(basePath, "Config", "Input")
+	inputPath := inputSubdir(basePath)
 
 	// Check that the folder exists
 	if _, err := os.Stat(inputPath); os.IsNotExist(err) {
@@ -83,20 +83,18 @@ func parseDCS(basePath string) (*common.ProfileCollection, error) {
 		return nil, fmt.Errorf("error reading Input folder: %w", err)
 	}
 
-	// Parse each profile
+	// Parse each profile. System profiles are parsed too, since their bindings
+	// are shared across modules, and are told apart by Profile.Module being empty.
 	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-
-		// Ignore _easy profiles
-		if strings.Contains(entry.Name(), "_easy") {
+		if !entry.IsDir() || isEasyVariant(entry.Name()) {
 			continue
 		}
 
 		profile, err := parseDCSProfile(filepath.Join(inputPath, entry.Name()), entry.Name())
 		if err != nil {
-			fmt.Printf("Warning: unable to parse profile %s: %v\n", entry.Name(), err)
+			// common.Printf, not fmt: the GUI redirects the former, and a
+			// -H windowsgui binary has no stdout for the latter to reach.
+			common.Printf("⚠ Unable to parse profile %s: %v\n", entry.Name(), err)
 			continue
 		}
 
@@ -121,19 +119,14 @@ func parseDCSProfile(profilePath, profileName string) (*common.Profile, error) {
 	// Path to joystick folder
 	joystickPath := filepath.Join(profilePath, "joystick")
 
-	if _, err := os.Stat(joystickPath); os.IsNotExist(err) {
+	if !hasJoystickFolder(profilePath) {
 		return nil, fmt.Errorf("no joystick folder in profile")
 	}
 
-	// Extract module name (skip Default, UiLayer, CommandMenu)
+	// A system profile keeps an empty Module: its bindings belong to every
+	// aircraft rather than to one of them.
 	moduleName := ""
-	ignoredProfiles := map[string]bool{
-		"Default":     true,
-		"UiLayer":     true,
-		"CommandMenu": true,
-	}
-
-	if !ignoredProfiles[profileName] {
+	if !systemProfiles[profileName] {
 		moduleName = profileName
 	}
 
@@ -160,7 +153,7 @@ func parseDCSProfile(profilePath, profileName string) (*common.Profile, error) {
 		filePath := filepath.Join(joystickPath, entry.Name())
 		err := parseDCSLuaFile(filePath, entry.Name(), profile)
 		if err != nil {
-			fmt.Printf("  Warning: error parsing %s: %v\n", entry.Name(), err)
+			common.Printf("  ⚠ Error parsing %s: %v\n", entry.Name(), err)
 		}
 	}
 

@@ -4,14 +4,6 @@ import (
 	"strings"
 )
 
-// KeyboardBinding represents a keyboard binding in the simulator
-type KeyboardBinding struct {
-	Key         string   // e.g., "ESC", "F1", "LCtrl", "A"
-	Action      string   // The action identifier
-	Description string   // The action description
-	Modifiers   []string // Modifier keys (Ctrl, Shift, Alt)
-}
-
 // NormalizeKeyNameForMatching normalizes key names for comparison between different systems
 // Used by Gremlins, TARGET, and simulator parsers to match key bindings
 func NormalizeKeyNameForMatching(key string) string {

@@ -38,12 +38,18 @@ func NormalizeGUIDShort(guid string) string {
 	return normalized
 }
 
-// MatchGUIDPartial compares GUIDs with format-aware matching:
+// MatchGUIDPartial reports whether two GUIDs name the same physical controller.
+//
 // - Same segment count (both 5 or both 4): exact match on all segments
 // - Mixed segment count (5 vs 4): partial match on first 3 segments (handles IL-2 vs DCS)
+//
 // This prevents false positives between different devices with the same first 3 segments,
 // while still allowing cross-simulator matching (DCS 5-segment vs IL-2 4-segment).
 // Example: "EE6F1C30-3F2E-11F0-8001-444553540000" matches "EE6F1C30-3F2E-11F0-0000545345440180"
+//
+// It already answers the exact case, braces and letter case included, so callers
+// do not need to try an equality test first. Three of the four enrichers did,
+// each spelling the fallback slightly differently.
 func MatchGUIDPartial(guid1, guid2 string) bool {
 	clean1 := strings.ToUpper(strings.Trim(guid1, "{}"))
 	clean2 := strings.ToUpper(strings.Trim(guid2, "{}"))

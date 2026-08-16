@@ -26,3 +26,6 @@ run_simdiag_*
 users/
 dist/
 tests/integration/testdata/*/output/
+.claude/
+CLAUDE.md
+output2/

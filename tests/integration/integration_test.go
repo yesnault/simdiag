@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"context"
 	"encoding/csv"
 	"os"
 	"path/filepath"
@@ -8,33 +9,15 @@ import (
 	"strings"
 	"testing"
 
+	"simdiag/app"
 	"simdiag/common"
-	"simdiag/dcs"
-	"simdiag/gremlins"
-	"simdiag/il2"
-	"simdiag/il2korea"
-	"simdiag/openkneeboard"
-	"simdiag/srs"
-	"simdiag/target"
 	"simdiag/workflow"
 
 	"gopkg.in/yaml.v3"
 )
 
 func TestMain(m *testing.M) {
-	// Wire up ExtFuncs exactly like cmd/simdiag/main.go:init()
-	common.ExtFuncs = &common.ExternalFuncs{
-		GetTargetDeviceNumbers:    target.GetTargetDeviceNumbers,
-		AutoMatchTargetDevices:    target.AutoMatchTargetDevices,
-		TargetDeviceNumberToName:  target.DeviceNumberToName,
-		GetUnmatchedTargetDevices: target.GetUnmatchedTargetDevices,
-		HasGremlinsBindingsForDevice: func(guid string, config *common.Config) bool {
-			return len(gremlins.LoadBindingsForDevice(guid, config)) > 0
-		},
-		HasOpenKneeboardBindingsForDevice: func(guid string, config *common.Config) bool {
-			return len(openkneeboard.LoadBindingsForDevice(guid, config)) > 0
-		},
-	}
+	// Same wiring every entry point uses
 
 	os.Exit(m.Run())
 }
@@ -96,21 +79,10 @@ func runTestCase(t *testing.T, _ /* name */, configPath, expectedCSVPath string)
 		t.Fatalf("failed to load prepared config: %v", err)
 	}
 
-	// Create parsers and enrichers
-	parsers := map[common.SimulationType]common.SimulatorParser{
-		common.DCSWorld:     dcs.NewParser(),
-		common.IL2Sturmovik: il2.NewParser(),
-		common.IL2Korea:     il2korea.NewParser(config),
-	}
-	enrichers := []common.BindingEnricher{
-		gremlins.NewEnricher(),
-		target.NewEnricher(),
-		openkneeboard.NewEnricher(),
-		srs.NewEnricher(),
-	}
-
 	// Run the pipeline (noSVG=true)
-	workflow.ExportAllSimulatorsBatchWithInterfaces(parsers, enrichers, "", true)
+	if _, err := workflow.ExportAll(context.Background(), config, app.Parsers(config), app.Enrichers(), "", true); err != nil {
+		t.Fatalf("export failed: %v", err)
+	}
 
 	// Compare generated CSV with expected
 	actualCSVPath := filepath.Join(tmpDir, "export.csv")
@@ -238,7 +210,7 @@ func readAndSortCSV(t *testing.T, path string) []string {
 
 	// Verify headers match
 	header := strings.Join(records[0], ",")
-	_ = header // header validation is implicit — if columns differ, row comparisons will fail
+	_ = header // header validation is implicit: if columns differ, row comparisons will fail
 
 	// Join each data row and sort
 	rows := make([]string, 0, len(records)-1)

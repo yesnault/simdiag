@@ -13,25 +13,45 @@ type csvRowData struct {
 	physicalDeviceGUID string // GUID of the physical device
 	virtualDevice      string
 	virtualInput       string
-	templateKey        string // Template key that will be replaced (e.g., "Button_6", "AXIS_X")
-	templatePath       string // Relative path to template file (relative to templates_directory)
+	// templateKey is the key the binding lands on in the template, e.g.
+	// "Button_6" or "AXIS_X". It is written for whoever reads the CSV; the SVG
+	// importer recomputes it from Physical Input rather than trusting it, so
+	// hand-editing this column changes nothing.
+	templateKey  string
+	templatePath string // Relative path to template file (relative to templates_directory)
+}
+
+// byColumn maps each column name to this row's value for it.
+//
+// The header and the values are built from this one map, so the order lives in
+// AllColumns alone. They used to be two ordered lists maintained by hand in two
+// files, and reordering either one would have written every value under the
+// wrong header without a single test failing.
+func (r *csvRowData) byColumn() map[string]string {
+	return map[string]string{
+		ColSimulator:          r.simulator,
+		ColModule:             r.module,
+		ColAction:             r.action,
+		ColModifier:           r.modifier,
+		ColModifierDevice:     r.modifierDevice,
+		ColModifierNum:        r.modifierNum,
+		ColPhysicalDevice:     r.physicalDevice,
+		ColPhysicalInput:      r.physicalInput,
+		ColPhysicalDeviceGUID: r.physicalDeviceGUID,
+		ColVirtualDevice:      r.virtualDevice,
+		ColVirtualInput:       r.virtualInput,
+		ColTemplateKey:        r.templateKey,
+		ColTemplate:           r.templatePath,
+	}
 }
 
 // fields returns the row values in AllColumns order, ready for encoding/csv.
 func (r *csvRowData) fields() []string {
-	return []string{
-		r.simulator,
-		r.module,
-		r.action,
-		r.modifier,
-		r.modifierDevice,
-		r.modifierNum,
-		r.physicalDevice,
-		r.physicalInput,
-		r.physicalDeviceGUID,
-		r.virtualDevice,
-		r.virtualInput,
-		r.templateKey,
-		r.templatePath,
+	byColumn := r.byColumn()
+
+	values := make([]string, len(AllColumns))
+	for i, column := range AllColumns {
+		values[i] = byColumn[column]
 	}
+	return values
 }

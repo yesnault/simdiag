@@ -1,4 +1,4 @@
-package common
+package target
 
 import "strings"
 
@@ -118,28 +118,6 @@ func ConvertKeysForLayout(keys []string, sourceLayout, targetLayout KeyboardLayo
 	return converted
 }
 
-// GetKeyboardLayoutFromConfig returns the keyboard layout from config, defaulting to QWERTY
-func GetKeyboardLayoutFromConfig(config *Config) KeyboardLayout {
-	if config == nil || config.KeyboardLayout == "" {
-		return KeyboardQWERTY
-	}
-
-	switch strings.ToLower(config.KeyboardLayout) {
-	case "azerty":
-		return KeyboardAZERTY
-	case "qwerty":
-		return KeyboardQWERTY
-	default:
-		return KeyboardQWERTY
-	}
-}
-
-// IsValidKeyboardLayout checks if a layout string is valid
-func IsValidKeyboardLayout(layout string) bool {
-	switch strings.ToLower(layout) {
-	case "qwerty", "azerty":
-		return true
-	default:
-		return false
-	}
-}
+// There is deliberately no way to read a layout from the configuration. The only
+// keys that need converting come from a TARGET profile, and that profile already
+// states the layout it was written in. See target.keyboardLayoutFromTarget.

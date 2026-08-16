@@ -1,0 +1,40 @@
+<?xml version="1.0" ?>
+<profile version="9">
+    <devices>
+        <device device-guid="{33CD2900-B2F0-11EA-800A-444553540000}" name="Throttle - HOTAS Warthog" type="joystick">
+            <mode name="Default">
+                <!-- Scan code 56 is Alt, 19 is R. Together they are the combination
+                     IL-2 writes as key_lmenu+key_r, which is what this fixture is
+                     here to exercise. -->
+                <button description="alt combination" id="3">
+                    <container type="basic">
+                        <action-set>
+                            <macro>
+                                <properties/>
+                                <actions>
+                                    <key extended="False" press="True" scan-code="56"/>
+                                    <key extended="False" press="True" scan-code="19"/>
+                                </actions>
+                            </macro>
+                        </action-set>
+                    </container>
+                </button>
+                <!-- A Shift combination alongside it, so the test can tell "Alt was
+                     fixed" from "every combination happens to match". -->
+                <button description="shift combination" id="4">
+                    <container type="basic">
+                        <action-set>
+                            <macro>
+                                <properties/>
+                                <actions>
+                                    <key extended="False" press="True" scan-code="42"/>
+                                    <key extended="False" press="True" scan-code="19"/>
+                                </actions>
+                            </macro>
+                        </action-set>
+                    </container>
+                </button>
+            </mode>
+        </device>
+    </devices>
+</profile>

@@ -5,19 +5,6 @@ import "strings"
 // SimdiagVersion holds the version string set by the main package
 var SimdiagVersion = "dev"
 
-// ExternalFuncs holds function dependencies that are injected from main
-type ExternalFuncs struct {
-	GetTargetDeviceNumbers            func(string) ([]int, error)
-	AutoMatchTargetDevices            func([]int, []*Device) []TargetDeviceMapping
-	TargetDeviceNumberToName          func(int) string
-	GetUnmatchedTargetDevices         func([]int, []TargetDeviceMapping) []int
-	HasGremlinsBindingsForDevice      func(string, *Config) bool
-	HasOpenKneeboardBindingsForDevice func(string, *Config) bool
-}
-
-// ExtFuncs is the global instance of external functions
-var ExtFuncs *ExternalFuncs
-
 // SimulatorParser defines the interface for parsing simulator configurations
 type SimulatorParser interface {
 	// Parse reads simulator configuration files and returns a ProfileCollection
@@ -30,14 +17,6 @@ type SimulatorParser interface {
 type BindingEnricher interface {
 	// Enrich adds bindings from external tools to an ExportDevice
 	Enrich(exportDevice *ExportDevice, fullProfile *Profile, config *Config)
-}
-
-// Configurable defines the interface for components that need interactive configuration
-type Configurable interface {
-	// Configure prompts the user for configuration and saves to config
-	Configure(config *Config, batchMode bool) error
-	// GetName returns the human-readable name of the configurable component
-	GetName() string
 }
 
 // SimulationType represents the simulation type
@@ -63,6 +42,18 @@ func (s SimulationType) GetConfigKey() string {
 	default:
 		return string(s)
 	}
+}
+
+// SimulationTypeForConfigKey is the inverse of GetConfigKey, for callers that
+// iterate Config.Simulators and hold a key rather than a type. An unknown key
+// yields an empty type, which SimulatorIsConfigured treats as non-DCS.
+func SimulationTypeForConfigKey(key string) SimulationType {
+	for _, simType := range []SimulationType{DCSWorld, IL2Sturmovik, IL2Korea} {
+		if simType.GetConfigKey() == key {
+			return simType
+		}
+	}
+	return ""
 }
 
 // ModuleKey returns the value written to the CSV "Module" column: the DCS module
@@ -211,10 +202,10 @@ type ExportDevice struct {
 
 // ValidationError represents a binding that has no corresponding key in template
 type ValidationError struct {
-	DeviceName string
-	SimType    SimulationType
-	InputType  InputType
-	InputID    string
-	Action     string
-	MissingKey string
+	DeviceName string         `json:"deviceName"`
+	SimType    SimulationType `json:"simulator"`
+	InputType  InputType      `json:"inputType"`
+	InputID    string         `json:"inputId"`
+	Action     string         `json:"action"`
+	MissingKey string         `json:"missingKey"`
 }

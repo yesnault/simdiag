@@ -91,7 +91,7 @@ func LoadBindings(profilesPath, deviceGUID string) []*Binding {
 	// Parse Profiles.json to get the default profile GUID
 	profiles, err := ParseProfiles(profilesPath)
 	if err != nil {
-		fmt.Printf("⚠ Error parsing OpenKneeboard Profiles.json: %v\n", err)
+		common.Printf("⚠ Error parsing OpenKneeboard Profiles.json: %v\n", err)
 		return nil
 	}
 
@@ -108,7 +108,7 @@ func LoadBindings(profilesPath, deviceGUID string) []*Binding {
 	// Parse DirectInput.json
 	directInput, err := ParseDirectInput(directInputPath)
 	if err != nil {
-		fmt.Printf("⚠ Error parsing OpenKneeboard DirectInput.json: %v\n", err)
+		common.Printf("⚠ Error parsing OpenKneeboard DirectInput.json: %v\n", err)
 		return nil
 	}
 
@@ -120,12 +120,8 @@ func LoadBindings(profilesPath, deviceGUID string) []*Binding {
 	for guid, device := range directInput.Devices {
 		normalizedGUID := common.NormalizeGUIDUpper(guid)
 
-		// Check if this is the device we're looking for
-		// Try exact match first, then partial match for IL-2 compatibility
-		if !strings.EqualFold(normalizedGUID, normalizedDeviceGUID) {
-			if !common.MatchGUIDPartial(normalizedGUID, normalizedDeviceGUID) {
-				continue
-			}
+		if !common.MatchGUIDPartial(normalizedGUID, normalizedDeviceGUID) {
+			continue
 		}
 
 		// Process button bindings
