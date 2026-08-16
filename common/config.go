@@ -88,6 +88,15 @@ type SimulatorConfig struct {
 	DCSPath      string `yaml:"dcs_path,omitempty"`       // DCS World installation path (to find Config/Input)
 	IL2InputPath string `yaml:"il2_input_path,omitempty"` // IL-2 input configuration path
 
+	// Where DCS itself is installed, as opposed to DCSPath, which is the Saved
+	// Games folder holding the pilot's own bindings. Only the default keyboard
+	// labels (the F1-F12 view commands) live there, and only the game ships
+	// them, so this stays optional: left empty, dcs.parseDefaultKeyboardBindings
+	// falls back to probing the usual install locations. It exists because those
+	// probes cover neither a Steam install nor a drive other than C:, and a
+	// pilot with either silently lost every F1-F12 label.
+	DCSInstallPath string `yaml:"dcs_install_path,omitempty"`
+
 	// External tool profiles, for every module of this simulator
 	GremlinsProfileFilepath string `yaml:"gremlins_profile_filepath,omitempty"`
 	TargetProfileFilepath   string `yaml:"target_profile_filepath,omitempty"`

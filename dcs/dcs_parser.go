@@ -46,16 +46,28 @@ var (
 )
 
 // Parser implements the SimulatorParser interface for DCS World
-type Parser struct{}
+type Parser struct {
+	// Where the game is installed, which Parse's basePath (the Saved Games
+	// folder) does not tell us. Only parseDefaultKeyboardBindings needs it.
+	installPath string
+}
 
-// NewParser creates a new DCS parser instance
-func NewParser() *Parser {
-	return &Parser{}
+// NewParser creates a new DCS parser instance.
+//
+// It takes the config for the same reason il2korea.NewParser does: a label the
+// pilot's own files do not carry has to be borrowed from elsewhere. Here it is
+// the default F1-F12 view commands, which only the DCS installation ships.
+func NewParser(config *common.Config) *Parser {
+	p := &Parser{}
+	if section := config.LookupSimulatorConfig(common.DCSWorld); section != nil {
+		p.installPath = section.DCSInstallPath
+	}
+	return p
 }
 
 // Parse implements SimulatorParser.Parse
 func (p *Parser) Parse(basePath string) (*common.ProfileCollection, error) {
-	return parseDCS(basePath)
+	return parseDCS(basePath, p.installPath)
 }
 
 // GetName implements SimulatorParser.GetName
@@ -64,7 +76,7 @@ func (p *Parser) GetName() string {
 }
 
 // parseDCS parses DCS World configuration files
-func parseDCS(basePath string) (*common.ProfileCollection, error) {
+func parseDCS(basePath, installPath string) (*common.ProfileCollection, error) {
 	collection := &common.ProfileCollection{
 		Profiles: make([]*common.Profile, 0),
 	}
@@ -90,7 +102,7 @@ func parseDCS(basePath string) (*common.ProfileCollection, error) {
 			continue
 		}
 
-		profile, err := parseDCSProfile(filepath.Join(inputPath, entry.Name()), entry.Name())
+		profile, err := parseDCSProfile(filepath.Join(inputPath, entry.Name()), entry.Name(), installPath)
 		if err != nil {
 			// common.Printf, not fmt: the GUI redirects the former, and a
 			// -H windowsgui binary has no stdout for the latter to reach.
@@ -115,7 +127,7 @@ func parseDCS(basePath string) (*common.ProfileCollection, error) {
 }
 
 // parseDCSProfile parses an individual DCS profile
-func parseDCSProfile(profilePath, profileName string) (*common.Profile, error) {
+func parseDCSProfile(profilePath, profileName, installPath string) (*common.Profile, error) {
 	// Path to joystick folder
 	joystickPath := filepath.Join(profilePath, "joystick")
 
@@ -179,7 +191,7 @@ func parseDCSProfile(profilePath, profileName string) (*common.Profile, error) {
 
 	// Also parse default keyboard bindings from DCS installation
 	// These provide the base F1-F12 view commands and other defaults
-	parseDefaultKeyboardBindings(profile)
+	parseDefaultKeyboardBindings(profile, installPath)
 
 	// Parse modifiers.lua to get device ownership of modifier/switch buttons
 	modifiersFilePath := filepath.Join(profilePath, "modifiers.lua")
@@ -694,12 +706,24 @@ func parseKeyboardBindingsFromLua(fileContent string, profile *common.Profile) {
 
 // parseDefaultKeyboardBindings parses the default DCS keyboard bindings
 // These provide F1-F12 view commands and other defaults that aren't in user .diff files
-func parseDefaultKeyboardBindings(profile *common.Profile) {
+//
+// installPath, when configured, is tried before the guesses below. Those guesses
+// are the only thing that used to locate this file, and they cover neither a
+// Steam install nor a drive other than C: — a pilot with either lost every
+// F1-F12 label without a word. They also made the integration test depend on the
+// machine running it: expected.csv held labels no fixture provided, so it passed
+// on a developer's PC and failed on CI, where DCS is not installed.
+func parseDefaultKeyboardBindings(profile *common.Profile, installPath string) {
 	// Common DCS installation paths
 	possiblePaths := []string{
 		"C:\\Program Files\\Eagle Dynamics\\DCS World\\Config\\Input\\Aircrafts\\Default\\keyboard\\default.lua",
 		"C:\\Program Files (x86)\\Eagle Dynamics\\DCS World\\Config\\Input\\Aircrafts\\Default\\keyboard\\default.lua",
 		"C:\\Program Files\\DCS World\\Config\\Input\\Aircrafts\\Default\\keyboard\\default.lua",
+	}
+
+	if installPath != "" {
+		configured := filepath.Join(installPath, "Config", "Input", "Aircrafts", "Default", "keyboard", "default.lua")
+		possiblePaths = append([]string{configured}, possiblePaths...)
 	}
 
 	var defaultFilePath string

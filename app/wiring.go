@@ -25,7 +25,7 @@ import (
 // from a configured Great Battles installation.
 func Parsers(config *common.Config) map[common.SimulationType]common.SimulatorParser {
 	return map[common.SimulationType]common.SimulatorParser{
-		common.DCSWorld:     dcs.NewParser(),
+		common.DCSWorld:     dcs.NewParser(config),
 		common.IL2Sturmovik: il2.NewParser(),
 		common.IL2Korea:     il2korea.NewParser(config),
 	}

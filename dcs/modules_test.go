@@ -69,7 +69,7 @@ func TestListModules_AgreesWithParseDCS(t *testing.T) {
 		t.Fatalf("ListModules: %v", err)
 	}
 
-	collection, err := parseDCS(base)
+	collection, err := parseDCS(base, "")
 	if err != nil {
 		t.Fatalf("parseDCS: %v", err)
 	}

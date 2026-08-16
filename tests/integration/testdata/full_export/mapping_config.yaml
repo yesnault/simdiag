@@ -29,6 +29,7 @@ device_mappings:
 simulators:
     dcs_world:
         dcs_path: testdata/full_export/fixtures/dcs
+        dcs_install_path: testdata/full_export/fixtures/dcs-install
         gremlins_profile_filepath: testdata/full_export/fixtures/gremlins/yesno.xml
     il2_sturmovik:
         il2_input_path: testdata/full_export/fixtures/il2
