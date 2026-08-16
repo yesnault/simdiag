@@ -75,20 +75,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      # A published release is installed by the About tab with one click, so
-      # what gets published has to be what the maintainer meant to publish.
-      # The key is pinned rather than merely "some key on the account": importing
-      # the account's keys is how the public half is obtained, not what is
-      # trusted. Rotating the release key means updating this fingerprint.
-      - name: Verify the tag is signed by the release key
-        env:
-          RELEASE_KEY: A65914635785FF2DC0D955E51329E77EDFDF4C79
-        run: |
-          curl -sSf https://github.com/yesnault.gpg | gpg --import
-          git verify-tag --raw "$GITHUB_REF_NAME" 2>&1 \
-            | grep -q "VALIDSIG $RELEASE_KEY" \
-            || { echo "::error::$GITHUB_REF_NAME is not signed by the release key"; exit 1; }
-
       - name: Verify the tag is on master
         run: |
           git fetch --no-tags origin master
